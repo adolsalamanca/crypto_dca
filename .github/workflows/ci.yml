@@ -22,7 +22,7 @@ on:
 
 jobs:
   buy:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     env:
       DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
 
