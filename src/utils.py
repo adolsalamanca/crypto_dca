@@ -48,7 +48,9 @@ def log_config(logger: logging.Logger, args: argparse.Namespace, symbol: str) ->
     logger.info(f"Time in force: {args.time_in_force}")
     logger.info(f"Base URL: {args.base_url}")
     logger.info(f"Dry run: {args.dry_run}")
-    logger.info(f"Order timeout: {args.order_timeout}s")
+    logger.info(f"Poll interval: {args.poll_interval}s")
+    logger.info(f"Intervals before reprice: {args.intervals_before_reprice}")
+    logger.info(f"Max reprices: {args.max_reprices}")
     logger.info("=" * 60)
 
 
@@ -107,10 +109,24 @@ def parse_args() -> argparse.Namespace:
     )
 
     parser.add_argument(
-        "--order-timeout",
+        "--poll-interval",
         type=int,
-        default=1800,
-        help="Seconds to wait before cancelling unfilled order",
+        default=60,
+        help="Seconds between order status checks",
+    )
+
+    parser.add_argument(
+        "--intervals-before-reprice",
+        type=int,
+        default=5,
+        help="Consecutive intervals price must be above limit before repricing",
+    )
+
+    parser.add_argument(
+        "--max-reprices",
+        type=int,
+        default=3,
+        help="Maximum reprice attempts before giving up",
     )
 
     parser.add_argument(
