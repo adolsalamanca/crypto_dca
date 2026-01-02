@@ -4,7 +4,7 @@ import hashlib
 import hmac
 import logging
 import time
-from decimal import ROUND_DOWN, Decimal
+from decimal import Decimal
 from typing import Any
 from urllib.parse import urlencode
 
@@ -189,24 +189,3 @@ class BinanceClient:
         params = {"symbol": symbol, "orderId": order_id}
         self._log(logging.INFO, f"Cancelling order {order_id} for {symbol}")
         return self._request("DELETE", "/api/v3/order", params, signed=True)
-
-
-def round_down(value: Decimal, step: Decimal) -> Decimal:
-    """
-    Round a value down to the nearest step.
-
-    Example:
-        round_down(Decimal("0.12345"), Decimal("0.0001")) -> Decimal("0.1234")
-    """
-    if step <= 0:
-        return value
-    return (value / step).to_integral_value(rounding=ROUND_DOWN) * step
-
-
-def round_to_tick(price: Decimal, tick_size: Decimal) -> Decimal:
-    """
-    Round a price down to the nearest tick size.
-
-    Same as round_down but with clearer naming for price operations.
-    """
-    return round_down(price, tick_size)

@@ -23,6 +23,7 @@ on:
 jobs:
   buy:
     runs-on: self-hosted
+    timeout-minutes: 45
     env:
       DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
 

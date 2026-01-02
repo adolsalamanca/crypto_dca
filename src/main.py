@@ -1,26 +1,27 @@
-"""
-Crypto DCA Bot - Automated Binance Spot limit buy orders.
+"""Crypto DCA Bot - Entry point."""
 
-Entry point that wires up dependencies and executes the DCA order.
-"""
-
+import logging
 import os
 import sys
 
 from src.binance_client import BinanceAPIError, BinanceClient
+from src.cli import normalize_symbol, parse_args, validate_args
 from src.dca_executor import DCAExecutor, OrderConfig
-from src.utils import (
-    create_logger,
-    log_config,
-    normalize_symbol,
-    parse_args,
-    validate_args,
-)
 
 
 def main() -> int:
     args = parse_args()
-    logger = create_logger("crypto-dca", args.log_level)
+
+    logger = logging.getLogger("crypto-dca")
+    logger.setLevel(getattr(logging, args.log_level))
+    handler = logging.StreamHandler()
+    handler.setFormatter(
+        logging.Formatter(
+            "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+        )
+    )
+    logger.addHandler(handler)
 
     try:
         validate_args(args)
@@ -38,7 +39,14 @@ def main() -> int:
         return 1
 
     symbol = normalize_symbol(args.symbol)
-    log_config(logger, args, symbol)
+
+    logger.info(
+        f"Symbol: {symbol} | Spend: {args.spend_eur} EUR | Multiplier: {args.price_multiplier}"
+    )
+    logger.info(
+        f"Poll: {args.poll_interval}s | Reprice after: {args.intervals_before_reprice} | Max reprices: {args.max_reprices}"
+    )
+    logger.info(f"Dry run: {args.dry_run}")
 
     client = BinanceClient(
         api_key=api_key,
@@ -62,14 +70,12 @@ def main() -> int:
         executor = DCAExecutor(client, logger)
         result = executor.execute(config, dry_run=args.dry_run)
 
-        logger.info("=" * 60)
         if result.filled:
             logger.info(f"SUCCESS: Order filled - {result.quantity} @ {result.price}")
         elif result.success:
             logger.info(f"COMPLETE: {result.message}")
         else:
             logger.error(f"FAILED: {result.message}")
-        logger.info("=" * 60)
 
         return 0 if result.success else 1
 

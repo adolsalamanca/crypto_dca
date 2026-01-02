@@ -3,13 +3,24 @@
 import logging
 import time
 from dataclasses import dataclass
-from decimal import Decimal
+from decimal import ROUND_DOWN, Decimal
 from typing import Any
 
-from src.binance_client import BinanceClient, round_down, round_to_tick
+from src.binance_client import BinanceClient
+
+
+def round_step(value: Decimal, step: Decimal) -> Decimal:
+    """Round a value down to the nearest step size."""
+    if step <= 0:
+        return value
+    return (value / step).to_integral_value(rounding=ROUND_DOWN) * step
+
 
 # Type alias for exchange filters
 Filters = dict[str, Any]
+
+# Progressive multipliers for repricing (more aggressive each time)
+REPRICE_MULTIPLIERS = (Decimal("0.9991"), Decimal("0.9993"), Decimal("0.9996"))
 
 
 @dataclass
@@ -88,7 +99,7 @@ class DCAExecutor:
     ) -> Decimal:
         """Calculate limit price from best ask."""
         raw_price = best_ask * multiplier
-        limit_price = round_to_tick(raw_price, filters["tick_size"])
+        limit_price = round_step(raw_price, filters["tick_size"])
         self._logger.info(
             f"Limit price: {best_ask} * {multiplier} = {raw_price} -> {limit_price}"
         )
@@ -99,7 +110,7 @@ class DCAExecutor:
     ) -> Decimal:
         """Calculate order quantity from spend amount."""
         raw_qty = spend / price
-        quantity = round_down(raw_qty, filters["step_size"])
+        quantity = round_step(raw_qty, filters["step_size"])
         self._logger.info(f"Quantity: {spend} / {price} = {raw_qty} -> {quantity}")
         return quantity
 
@@ -229,14 +240,31 @@ class DCAExecutor:
                             message="Max reprices reached",
                         )
 
+                    multiplier = REPRICE_MULTIPLIERS[reprice_count]
+                    new_limit = round_step(
+                        current_ask * multiplier, filters["tick_size"]
+                    )
+                    if new_limit <= current_price:
+                        self._logger.info(
+                            f"[{check_num}] Skipping reprice - price trending down "
+                            f"(new {new_limit} <= current {current_price})"
+                        )
+                        intervals_above = 0
+                        continue
+
                     current_order_id, current_price = self._reprice_order(
-                        config, current_order_id, quantity, current_ask, filters
+                        config,
+                        current_order_id,
+                        quantity,
+                        current_ask,
+                        multiplier,
+                        filters,
                     )
                     reprice_count += 1
                     intervals_above = 0
                     self._logger.info(
                         f"New order {current_order_id} @ {current_price} "
-                        f"(reprice {reprice_count}/{config.max_reprices})"
+                        f"(reprice {reprice_count}/{config.max_reprices}, multiplier {multiplier})"
                     )
             else:
                 reset = intervals_above > 0
@@ -251,14 +279,13 @@ class DCAExecutor:
         old_order_id: int,
         quantity: Decimal,
         current_ask: Decimal,
+        multiplier: Decimal,
         filters: Filters,
     ) -> tuple[int, Decimal]:
         """Cancel old order and place new one at current price."""
         self._client.cancel_order(config.symbol, old_order_id)
 
-        new_price = round_to_tick(
-            current_ask * config.price_multiplier, filters["tick_size"]
-        )
+        new_price = round_step(current_ask * multiplier, filters["tick_size"])
         response = self._client.place_limit_order(
             symbol=config.symbol,
             side="BUY",
