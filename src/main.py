@@ -40,7 +40,7 @@ def main() -> int:
 
     symbol = normalize_symbol(args.symbol)
 
-    logger.info(
+    logger.debug(
         f"Symbol: {symbol} | Spend: {args.spend_eur} EUR | Multiplier: {args.price_multiplier}"
     )
     logger.info(

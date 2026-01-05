@@ -173,7 +173,7 @@ class BinanceClient:
         }
 
         self._log(
-            logging.INFO,
+            logging.DEBUG,
             f"Placing {side} LIMIT order: {quantity} {symbol} @ {price} ({time_in_force})",
         )
 

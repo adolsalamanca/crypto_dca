@@ -78,7 +78,7 @@ class DCAExecutor:
             return OrderResult(success=False, filled=False, message=error)
 
         notional = quantity * limit_price
-        self._logger.info(f"Order: {quantity} @ {limit_price} = {notional} notional")
+        self._logger.debug(f"Order: {quantity} @ {limit_price} = {notional} notional")
 
         if dry_run:
             self._log_dry_run(
@@ -111,7 +111,7 @@ class DCAExecutor:
         """Calculate order quantity from spend amount."""
         raw_qty = spend / price
         quantity = round_step(raw_qty, filters["step_size"])
-        self._logger.info(f"Quantity: {spend} / {price} = {raw_qty} -> {quantity}")
+        self._logger.debug(f"Quantity: {spend} / {price} = {raw_qty} -> {quantity}")
         return quantity
 
     def _validate_order(
