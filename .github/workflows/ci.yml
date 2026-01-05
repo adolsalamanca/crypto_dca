@@ -2,11 +2,10 @@ name: Monthly BTC Buy
 
 on:
   schedule:
-    # Run on the 9th of every month at 08:00 UTC
+    # Run every tuesday of the month at 08:05 UTC
     # This corresponds to 09:00 Europe/Madrid in winter (CET = UTC+1)
-    # In summer (CEST = UTC+2), this will run at 10:00 Madrid time
-    # See README for DST considerations
-    - cron: '0 8 9 * *'
+    # In summer (CEST = UTC+2), this will run at 10:05 Madrid time
+    - cron: '0 8 * 5 2'
 
   # Allow manual trigger for testing
   workflow_dispatch:
