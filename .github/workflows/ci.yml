@@ -5,7 +5,7 @@ on:
     # Run every tuesday of the month at 08:05 UTC
     # This corresponds to 09:00 Europe/Madrid in winter (CET = UTC+1)
     # In summer (CEST = UTC+2), this will run at 10:05 Madrid time
-    - cron: '0 8 * 5 2'
+    - cron: '0 8 * * 2'
 
   # Allow manual trigger for testing
   workflow_dispatch:
