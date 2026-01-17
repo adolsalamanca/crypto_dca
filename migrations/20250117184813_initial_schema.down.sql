@@ -1,0 +1,1 @@
+DROP SCHEMA crypto_dca CASCADE;
