@@ -1,0 +1,58 @@
+name: Daily run
+
+on:
+  schedule:
+    # Run every day at 08:00 UTC
+    # This corresponds to 09:00 Europe/Madrid in winter (CET = UTC+1)
+    # In summer (CEST = UTC+2), this will run at 10:05 Madrid time
+    - cron: '0 8 * * *'
+
+  # Allow manual trigger for testing
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Run in dry-run mode (no actual order)'
+        required: false
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+
+jobs:
+  buy:
+    runs-on: self-hosted
+    timeout-minutes: 45
+    env:
+      DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        run: uv python install 3.13
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Run DCA Bot
+        env:
+          BINANCE_API_KEY: ${{ secrets.BINANCE_API_KEY }}
+          BINANCE_API_SECRET: ${{ secrets.BINANCE_API_SECRET }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          USER_ID: ${{ secrets.USER_ID }}
+        run: |
+          uv run python -m src.main \
+            --symbol "${{ vars.SYMBOL || 'BTCEUR' }}" \
+            --spend-eur "${{ secrets.SPEND_EUR || '50' }}" \
+            --price-multiplier "${{ vars.PRICE_MULTIPLIER || '0.999' }}" \
+            --time-in-force "${{ vars.TIME_IN_FORCE || 'GTC' }}" \
+            --base-url "${{ vars.BINANCE_BASE_URL || 'https://api.binance.com' }}" \
+            --log-level "${{ vars.LOG_LEVEL || 'INFO' }}" \
+            ${{ env.DRY_RUN == 'true' && '--dry-run' || '' }}

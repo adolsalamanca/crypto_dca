@@ -1,23 +1,7 @@
-name: Monthly BTC Buy
+name: CI
 
 on:
-  schedule:
-    # Run every tuesday of the month at 08:05 UTC
-    # This corresponds to 09:00 Europe/Madrid in winter (CET = UTC+1)
-    # In summer (CEST = UTC+2), this will run at 10:05 Madrid time
-    - cron: '0 8 * * 2'
-
-  # Allow manual trigger for testing
-  workflow_dispatch:
-    inputs:
-      dry_run:
-        description: 'Run in dry-run mode (no actual order)'
-        required: false
-        default: 'true'
-        type: choice
-        options:
-          - 'true'
-          - 'false'
+  push:
 
 jobs:
   buy:
@@ -39,18 +23,10 @@ jobs:
         run: uv python install 3.13
 
       - name: Install dependencies
-        run: uv sync
+        run: uv sync --group test
 
-      - name: Run DCA Bot
-        env:
-          BINANCE_API_KEY: ${{ secrets.BINANCE_API_KEY }}
-          BINANCE_API_SECRET: ${{ secrets.BINANCE_API_SECRET }}
-        run: |
-          uv run python -m src.main \
-            --symbol "${{ vars.SYMBOL || 'BTCEUR' }}" \
-            --spend-eur "${{ secrets.SPEND_EUR || '50' }}" \
-            --price-multiplier "${{ vars.PRICE_MULTIPLIER || '0.999' }}" \
-            --time-in-force "${{ vars.TIME_IN_FORCE || 'GTC' }}" \
-            --base-url "${{ vars.BINANCE_BASE_URL || 'https://api.binance.com' }}" \
-            --log-level "${{ vars.LOG_LEVEL || 'INFO' }}" \
-            ${{ env.DRY_RUN == 'true' && '--dry-run' || '' }}
+      - name: Run tests
+        run: uv run pytest
+
+      - name: Lint
+        run: uv run ruff check && uv run pyright

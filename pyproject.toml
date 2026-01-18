@@ -6,6 +6,8 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "requests>=2.31.0",
+    "psycopg[binary]>=3.2.0",
+    "psycopg-pool>=3.2.0",
 ]
 
 [project.scripts]
@@ -15,4 +17,8 @@ crypto-dca = "src.main:main"
 dev = [
     "pyright>=1.1.407",
     "ruff>=0.14.10",
+]
+test = [
+    "pytest>=8.0.0",
+    "testcontainers[postgres]>=4.0.0",
 ]

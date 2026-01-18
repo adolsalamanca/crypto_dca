@@ -46,6 +46,8 @@ class OrderResult:
     quantity: Decimal | None = None
     price: Decimal | None = None
     message: str = ""
+    reprices: int = 0
+    status: str = "PENDING"
 
 
 class DCAExecutor:
@@ -75,7 +77,14 @@ class DCAExecutor:
         quantity = self._calculate_quantity(config.spend_quote, limit_price, filters)
 
         if error := self._validate_order(quantity, limit_price, filters):
-            return OrderResult(success=False, filled=False, message=error)
+            return OrderResult(
+                success=False,
+                filled=False,
+                quantity=quantity,
+                price=limit_price,
+                message=error,
+                status="FAILED",
+            )
 
         notional = quantity * limit_price
         self._logger.debug(f"Order: {quantity} @ {limit_price} = {notional} notional")
@@ -162,6 +171,8 @@ class DCAExecutor:
                 quantity=quantity,
                 price=limit_price,
                 message="Filled immediately",
+                reprices=0,
+                status="FILLED",
             )
 
         return self._monitor_order(config, order_id, quantity, limit_price, filters)
@@ -205,6 +216,8 @@ class DCAExecutor:
                     quantity=quantity,
                     price=current_price,
                     message="Order filled",
+                    reprices=reprice_count,
+                    status="FILLED",
                 )
 
             if status not in ("NEW", "PARTIALLY_FILLED"):
@@ -213,7 +226,11 @@ class DCAExecutor:
                     success=False,
                     filled=False,
                     order_id=current_order_id,
+                    quantity=quantity,
+                    price=current_price,
                     message=f"Unexpected status: {status}",
+                    reprices=reprice_count,
+                    status="FAILED",
                 )
 
             if current_ask > current_price:
@@ -237,7 +254,11 @@ class DCAExecutor:
                             success=True,
                             filled=False,
                             order_id=current_order_id,
+                            quantity=quantity,
+                            price=current_price,
                             message="Max reprices reached",
+                            reprices=reprice_count,
+                            status="CANCELLED",
                         )
 
                     multiplier = REPRICE_MULTIPLIERS[reprice_count]

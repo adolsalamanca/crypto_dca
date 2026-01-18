@@ -4,6 +4,7 @@ import argparse
 import os
 import re
 from decimal import Decimal
+from uuid import UUID
 
 
 def normalize_symbol(symbol: str) -> str:
@@ -93,6 +94,12 @@ def parse_args() -> argparse.Namespace:
         help="Binance API recvWindow parameter",
     )
 
+    parser.add_argument(
+        "--user-id",
+        default=os.environ.get("USER_ID"),
+        help="User UUID for weekly order tracking (required)",
+    )
+
     return parser.parse_args()
 
 
@@ -114,3 +121,12 @@ def validate_args(args: argparse.Namespace) -> None:
         raise ValueError(
             f"--price-multiplier must be between 0 and 1, got {args.price_multiplier}"
         )
+
+    # Validate user_id
+    if not args.user_id:
+        raise ValueError("--user-id is required")
+
+    try:
+        UUID(args.user_id)
+    except ValueError:
+        raise ValueError(f"Invalid user_id UUID format: {args.user_id}")
