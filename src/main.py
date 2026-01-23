@@ -3,12 +3,13 @@
 import logging
 import os
 import sys
+import time
 from datetime import UTC, datetime
 from uuid import UUID
 
-from psycopg import Connection
+from psycopg import Connection, OperationalError
 from psycopg.rows import TupleRow
-from psycopg_pool import ConnectionPool
+from psycopg_pool import ConnectionPool, PoolTimeout
 
 from src.binance_client import BinanceAPIError, BinanceClient
 from src.cli import normalize_symbol, parse_args, validate_args
@@ -16,6 +17,9 @@ from src.dca_executor import DCAExecutor, OrderConfig
 from src.domain.models import Order
 from src.infrastructure.repositories import PostgresRepository
 from src.utils import is_same_week
+
+DB_CONNECT_RETRY_INTERVAL_SECS = 60
+DB_CONNECT_MAX_RETRIES = 10
 
 
 def main() -> int:
@@ -62,8 +66,30 @@ def main() -> int:
     )
     logger.info(f"Dry run: {args.dry_run}")
 
-    # Initialize database connection pool
-    pool: ConnectionPool[Connection[TupleRow]] = ConnectionPool(db_url)
+    # Initialize database connection pool with retry logic
+    pool: ConnectionPool[Connection[TupleRow]] | None = None
+    for attempt in range(1, DB_CONNECT_MAX_RETRIES + 1):
+        try:
+            pool = ConnectionPool(db_url, open=False)
+            pool.open(wait=True, timeout=30.0)
+            logger.info("Database connection established")
+            break
+        except (OperationalError, PoolTimeout) as e:
+            if pool is not None:
+                pool.close()
+                pool = None
+            if attempt == DB_CONNECT_MAX_RETRIES:
+                logger.error(
+                    f"Failed to connect to database after {DB_CONNECT_MAX_RETRIES} attempts: {e}"
+                )
+                return 1
+            logger.warning(
+                f"Database connection attempt {attempt}/{DB_CONNECT_MAX_RETRIES} failed: {e}. "
+                f"Retrying in {DB_CONNECT_RETRY_INTERVAL_SECS}s..."
+            )
+            time.sleep(DB_CONNECT_RETRY_INTERVAL_SECS)
+
+    assert pool is not None  # Type narrowing for mypy
     repo = PostgresRepository(pool)
     user_uuid = UUID(args.user_id)
 
