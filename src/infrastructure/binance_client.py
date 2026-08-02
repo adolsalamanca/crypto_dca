@@ -3,12 +3,13 @@
 import hashlib
 import hmac
 import logging
-import time
 from decimal import Decimal
 from typing import Any
 from urllib.parse import urlencode
 
 import requests
+
+from src.infrastructure.exchange import ExchangeInterface
 
 
 class BinanceAPIError(Exception):
@@ -21,7 +22,7 @@ class BinanceAPIError(Exception):
         super().__init__(f"Binance API error {status_code}: [{code}] {msg}")
 
 
-class BinanceClient:
+class BinanceClient(ExchangeInterface):
     """Client for Binance Spot API with signed request support."""
 
     def __init__(
@@ -39,15 +40,6 @@ class BinanceClient:
         self._logger = logger
         self.session = requests.Session()
         self.session.headers.update({"X-MBX-APIKEY": self.api_key})
-
-    def _log(self, level: int, msg: str) -> None:
-        """Log a message if logger is configured."""
-        if self._logger:
-            self._logger.log(level, msg)
-
-    def _get_timestamp(self) -> int:
-        """Get current timestamp in milliseconds."""
-        return int(time.time() * 1000)
 
     def _sign(self, params: dict[str, Any]) -> str:
         """Generate HMAC SHA256 signature for request parameters."""

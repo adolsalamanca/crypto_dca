@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from decimal import ROUND_DOWN, Decimal
 from typing import Any
 
-from src.binance_client import BinanceClient
+from src.infrastructure.exchange import ExchangeInterface
 
 
 def round_step(value: Decimal, step: Decimal) -> Decimal:
@@ -53,7 +53,7 @@ class OrderResult:
 class DCAExecutor:
     """Executes DCA orders with monitoring and adaptive repricing."""
 
-    def __init__(self, client: BinanceClient, logger: logging.Logger):
+    def __init__(self, client: ExchangeInterface, logger: logging.Logger):
         self._client = client
         self._logger = logger
 

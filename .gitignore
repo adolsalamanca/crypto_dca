@@ -51,3 +51,6 @@ htmlcov/
 
 # uv
 uv.lock
+
+# llms
+.claude/

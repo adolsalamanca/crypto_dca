@@ -11,7 +11,7 @@ from psycopg import Connection, OperationalError
 from psycopg.rows import TupleRow
 from psycopg_pool import ConnectionPool, PoolTimeout
 
-from src.binance_client import BinanceAPIError, BinanceClient
+from src.infrastructure.binance_client import BinanceAPIError, BinanceClient
 from src.cli import normalize_symbol, parse_args, validate_args
 from src.dca_executor import DCAExecutor, OrderConfig
 from src.domain.models import Order
