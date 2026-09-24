@@ -1,15 +1,31 @@
-"""Coinbase Spot API client placeholder."""
+"""Coinbase Exchange API client with base64 HMAC SHA256 authentication.
 
+Targets the Coinbase *Exchange* API (https://api.exchange.coinbase.com), not Advanced
+Trade. Exchange is the one with a usable sandbox: it hosts a subset of the real order
+books, so resting orders genuinely rest and fill. The Advanced Trade sandbox returns
+static canned responses and serves no market data at all, which cannot drive this bot.
+
+Sandbox:  https://api-public.sandbox.exchange.coinbase.com
+Keys for the sandbox are issued separately at https://public.sandbox.exchange.coinbase.com
+and are not interchangeable with production credentials.
+"""
+
+import base64
 import hashlib
 import hmac
+import json
 import logging
+import time
 from decimal import Decimal
 from typing import Any
-from urllib.parse import urlencode
 
 import requests
 
+from src.domain.models import OrderSnapshot, OrderStatus, PlacedOrder, SymbolRules
 from src.infrastructure.exchange import ExchangeInterface
+
+SANDBOX_URL = "https://api-public.sandbox.exchange.coinbase.com"
+PRODUCTION_URL = "https://api.exchange.coinbase.com"
 
 
 class CoinbaseAPIError(Exception):
@@ -23,116 +39,129 @@ class CoinbaseAPIError(Exception):
 
 
 class CoinbaseClient(ExchangeInterface):
-    """Client for Coinbase Spot API with signed request support."""
+    """Client for the Coinbase Exchange API."""
 
     def __init__(
         self,
         api_key: str,
         api_secret: str,
-        base_url: str = "https://api.binance.com",
-        recv_window: int = 5000,
+        passphrase: str,
+        base_url: str = PRODUCTION_URL,
         logger: logging.Logger | None = None,
     ):
+        super().__init__(logger)
         self.api_key = api_key
         self.api_secret = api_secret
+        self.passphrase = passphrase
         self.base_url = base_url.rstrip("/")
-        self.recv_window = recv_window
-        self._logger = logger
         self.session = requests.Session()
-        self.session.headers.update({"X-MBX-APIKEY": self.api_key})
+        self.session.headers.update({"Content-Type": "application/json"})
 
-    def _sign(self, params: dict[str, Any]) -> str:
-        """Generate HMAC SHA256 signature for request parameters."""
-        query_string = urlencode(params)
-        signature = hmac.new(
-            self.api_secret.encode("utf-8"),
-            query_string.encode("utf-8"),
-            hashlib.sha256,
-        ).hexdigest()
-        return signature
+    # ── transport ────────────────────────────────────────────────────────────
+
+    def _sign(self, timestamp: str, method: str, path: str, body: str) -> str:
+        """
+        Coinbase signs `timestamp + method + requestPath + body`, HMAC-SHA256 with the
+        base64-*decoded* secret, and returns the base64-encoded digest. Note this covers
+        the body and path, which is why signing cannot be shared with Binance.
+        """
+        message = f"{timestamp}{method.upper()}{path}{body}".encode()
+        key = base64.b64decode(self.api_secret)
+        signature = hmac.new(key, message, hashlib.sha256).digest()
+        return base64.b64encode(signature).decode()
 
     def _request(
         self,
         method: str,
-        endpoint: str,
-        params: dict[str, Any] | None = None,
+        path: str,
+        body: dict[str, Any] | None = None,
         signed: bool = False,
-    ) -> dict[str, Any]:
-        """Make HTTP request to Coinbase API."""
-        url = f"{self.base_url}{endpoint}"
-        params = params or {}
+    ) -> Any:
+        """Make an HTTP request to the Coinbase Exchange API."""
+        url = f"{self.base_url}{path}"
+        payload = json.dumps(body) if body else ""
+        headers: dict[str, str] = {}
 
         if signed:
-            params["timestamp"] = self._get_timestamp()
-            params["recvWindow"] = self.recv_window
-            params["signature"] = self._sign(params)
+            timestamp = str(time.time())
+            headers = {
+                "CB-ACCESS-KEY": self.api_key,
+                "CB-ACCESS-SIGN": self._sign(timestamp, method, path, payload),
+                "CB-ACCESS-TIMESTAMP": timestamp,
+                "CB-ACCESS-PASSPHRASE": self.passphrase,
+            }
 
-        # Log request without sensitive data
-        safe_params = {k: v for k, v in params.items() if k != "signature"}
-        self._log(logging.DEBUG, f"Request: {method} {endpoint} params={safe_params}")
+        self._log(logging.DEBUG, f"Request: {method} {path} body={body}")
 
         try:
-            if method == "GET":
-                response = self.session.get(url, params=params, timeout=30)
-            elif method == "POST":
-                response = self.session.post(url, params=params, timeout=30)
-            elif method == "DELETE":
-                response = self.session.delete(url, params=params, timeout=30)
-            else:
-                raise ValueError(f"Unsupported HTTP method: {method}")
-
+            response = self.session.request(
+                method,
+                url,
+                data=payload if payload else None,
+                headers=headers,
+                timeout=30,
+            )
             data = response.json() if response.text else {}
 
-            if response.status_code != 200:
-                error_code = data.get("code")
-                error_msg = data.get("msg", response.text)
-                raise CoinbaseAPIError(response.status_code, error_code, error_msg)
+            if not response.ok:
+                msg = (
+                    data.get("message", response.text)
+                    if isinstance(data, dict)
+                    else response.text
+                )
+                raise CoinbaseAPIError(response.status_code, None, msg)
 
             return data
 
         except requests.RequestException as e:
             raise CoinbaseAPIError(0, None, f"Network error: {e}") from e
 
-    def get_exchange_info(self, symbol: str) -> dict[str, Any]:
+    # ── domain operations ────────────────────────────────────────────────────
+
+    def format_symbol(self, symbol: str) -> str:
         """
-        Get exchange info and filters for a symbol.
+        Coinbase product ids are the canonical form already: BTC-EUR.
 
-        Returns dict with:
-            - tick_size: Decimal (price precision)
-            - step_size: Decimal (quantity precision)
-            - min_notional: Decimal (minimum order value)
-            - min_qty: Decimal (minimum quantity)
-            - max_qty: Decimal (maximum quantity)
+        Nothing to reconstruct, so nothing can be reconstructed wrongly.
         """
-        data = self._request("GET", "/api/v3/exchangeInfo", {"symbol": symbol})
+        return symbol.upper().replace("/", "-").replace("_", "-")
 
-        for s in data.get("symbols", []):
-            if s["symbol"] == symbol:
-                filters = {f["filterType"]: f for f in s["filters"]}
+    def get_symbol_rules(self, symbol: str) -> SymbolRules:
+        """
+        Read a Coinbase product into venue-agnostic rules.
 
-                price_filter = filters.get("PRICE_FILTER", {})
-                lot_size = filters.get("LOT_SIZE", {})
-                notional = filters.get("NOTIONAL", filters.get("MIN_NOTIONAL", {}))
+        `quote_increment` is the price tick, `base_increment` the quantity step. Coinbase
+        publishes no per-order maximum, so `max_qty` is left unset. `min_market_funds` is
+        documented for market orders; it is the closest published notional floor and is
+        used conservatively here.
+        """
+        product = self.format_symbol(symbol)
+        data = self._request("GET", f"/products/{product}")
 
-                return {
-                    "tick_size": Decimal(price_filter.get("tickSize", "0.01")),
-                    "step_size": Decimal(lot_size.get("stepSize", "0.00001")),
-                    "min_notional": Decimal(notional.get("minNotional", "10")),
-                    "min_qty": Decimal(lot_size.get("minQty", "0")),
-                    "max_qty": Decimal(lot_size.get("maxQty", "9999999")),
-                }
+        if data.get("trading_disabled") or data.get("status") != "online":
+            raise CoinbaseAPIError(
+                0, None, f"Product {product} is not tradable (status={data.get('status')})"
+            )
 
-        raise CoinbaseAPIError(404, None, f"Symbol {symbol} not found in exchange info")
+        base_increment = Decimal(data["base_increment"])
+        return SymbolRules(
+            tick_size=Decimal(data["quote_increment"]),
+            step_size=base_increment,
+            min_qty=base_increment,
+            max_qty=None,
+            min_notional=Decimal(data.get("min_market_funds", "0")),
+        )
 
     def get_best_ask(self, symbol: str) -> Decimal:
-        """Get the current best ask price for a symbol."""
-        data = self._request("GET", "/api/v3/ticker/bookTicker", {"symbol": symbol})
-        ask_price = data.get("askPrice")
+        """Get the current best ask price for a product."""
+        product = self.format_symbol(symbol)
+        data = self._request("GET", f"/products/{product}/ticker")
+        ask = data.get("ask")
 
-        if not ask_price:
-            raise CoinbaseAPIError(404, None, f"No ask price found for {symbol}")
+        if not ask:
+            raise CoinbaseAPIError(404, None, f"No ask price found for {product}")
 
-        return Decimal(ask_price)
+        return Decimal(ask)
 
     def place_limit_order(
         self,
@@ -141,43 +170,74 @@ class CoinbaseClient(ExchangeInterface):
         quantity: Decimal,
         price: Decimal,
         time_in_force: str = "GTC",
-    ) -> dict[str, Any]:
-        """
-        Place a limit order.
-
-        Args:
-            symbol: Trading pair (e.g., BTCEUR)
-            side: BUY or SELL
-            quantity: Amount to buy/sell
-            price: Limit price
-            time_in_force: GTC, IOC, or FOK
-
-        Returns:
-            Order response from Binance
-        """
-        params = {
-            "symbol": symbol,
-            "side": side,
-            "type": "LIMIT",
-            "timeInForce": time_in_force,
-            "quantity": str(quantity),
+    ) -> PlacedOrder:
+        """Place a limit order."""
+        product = self.format_symbol(symbol)
+        body = {
+            "type": "limit",
+            "side": side.lower(),
+            "product_id": product,
             "price": str(price),
+            "size": str(quantity),
+            "time_in_force": time_in_force.upper(),
         }
 
         self._log(
             logging.DEBUG,
-            f"Placing {side} LIMIT order: {quantity} {symbol} @ {price} ({time_in_force})",
+            f"Placing {side} LIMIT order: {quantity} {product} @ {price} ({time_in_force})",
         )
 
-        return self._request("POST", "/api/v3/order", params, signed=True)
+        data = self._request("POST", "/orders", body, signed=True)
+        return PlacedOrder(id=str(data["id"]), status=self._map_status(data))
 
-    def get_order(self, symbol: str, order_id: int) -> dict[str, Any]:
-        """Get order status by order ID."""
-        params = {"symbol": symbol, "orderId": order_id}
-        return self._request("GET", "/api/v3/order", params, signed=True)
+    def get_order(self, symbol: str, order_id: str) -> OrderSnapshot:
+        """Get order state by order ID. `symbol` is unused: Coinbase ids are global."""
+        data = self._request("GET", f"/orders/{order_id}", signed=True)
+        return OrderSnapshot(
+            id=str(data["id"]),
+            status=self._map_status(data),
+            filled_qty=Decimal(data.get("filled_size", "0")),
+        )
 
-    def cancel_order(self, symbol: str, order_id: int) -> dict[str, Any]:
-        """Cancel an open order."""
-        params = {"symbol": symbol, "orderId": order_id}
+    def cancel_order(self, symbol: str, order_id: str) -> None:
+        """Cancel a resting order. Tolerates an order that is already gone."""
         self._log(logging.INFO, f"Cancelling order {order_id} for {symbol}")
-        return self._request("DELETE", "/api/v3/order", params, signed=True)
+        try:
+            self._request("DELETE", f"/orders/{order_id}", signed=True)
+        except CoinbaseAPIError as e:
+            if e.status_code == 404:
+                self._log(logging.INFO, f"Order {order_id} already gone; nothing to cancel")
+                return
+            raise
+
+    @staticmethod
+    def _map_status(order: dict[str, Any]) -> OrderStatus:
+        """
+        Translate a Coinbase order payload into the domain enum.
+
+        Coinbase has no PARTIALLY_FILLED status: a partial fill is an order still `open`
+        with `filled_size > 0`. `pending` means received but not yet resting on the book —
+        it is *earlier* than `open`, not a partial fill.
+
+        A `done` order whose `done_reason` is a cancel can still carry `filled_size > 0`;
+        that is a real purchase and is reported as PARTIALLY_FILLED so the caller settles
+        it rather than discarding it.
+        """
+        status = str(order.get("status", "")).lower()
+        filled = Decimal(str(order.get("filled_size", "0") or "0"))
+
+        if status in ("pending", "received", "active"):
+            return OrderStatus.NEW
+        if status == "open":
+            return OrderStatus.PARTIALLY_FILLED if filled > 0 else OrderStatus.NEW
+        if status in ("done", "settled"):
+            reason = str(order.get("done_reason", "")).lower()
+            if reason == "filled":
+                return OrderStatus.FILLED
+            if filled > 0:
+                return OrderStatus.PARTIALLY_FILLED
+            return OrderStatus.CANCELLED
+        if status == "rejected":
+            return OrderStatus.FAILED
+
+        return OrderStatus.FAILED

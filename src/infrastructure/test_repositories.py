@@ -31,16 +31,14 @@ def database_url(postgres_container):
 
 @pytest.fixture(scope="session")
 def apply_migrations(database_url):
-    """Apply database migrations."""
+    """Apply every migration in version order, as golang-migrate would."""
     migrations_dir = Path(__file__).parent.parent.parent / "migrations"
 
-    # Read and execute migration file
-    migration_path = migrations_dir / "20250117184813_initial_schema.up.sql"
-    sql = migration_path.read_text()
-
     with connect(database_url, autocommit=True) as conn:
-        cur = ClientCursor(conn)
-        cur.execute(SQL(sql))  # type: ignore[arg-type]
+        for migration_path in sorted(migrations_dir.glob("*.up.sql")):
+            sql = migration_path.read_text()
+            cur = ClientCursor(conn)
+            cur.execute(SQL(sql))  # type: ignore[arg-type]
 
 
 @pytest.fixture

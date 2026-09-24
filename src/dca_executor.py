@@ -4,8 +4,8 @@ import logging
 import time
 from dataclasses import dataclass
 from decimal import ROUND_DOWN, Decimal
-from typing import Any
 
+from src.domain.models import OrderSnapshot, OrderStatus, SymbolRules
 from src.infrastructure.exchange import ExchangeInterface
 
 
@@ -15,9 +15,6 @@ def round_step(value: Decimal, step: Decimal) -> Decimal:
         return value
     return (value / step).to_integral_value(rounding=ROUND_DOWN) * step
 
-
-# Type alias for exchange filters
-Filters = dict[str, Any]
 
 # Progressive multipliers for repricing (more aggressive each time)
 REPRICE_MULTIPLIERS = (Decimal("0.9991"), Decimal("0.9993"), Decimal("0.9996"))
@@ -38,16 +35,24 @@ class OrderConfig:
 
 @dataclass
 class OrderResult:
-    """Result of a DCA order execution."""
+    """
+    Result of a DCA order execution.
+
+    `quantity` is the size the order was placed at; `filled_quantity` is what the venue
+    actually executed. `status` uses the persisted vocabulary the database CHECK
+    constraint permits: PENDING, FILLED, PARTIALLY_FILLED, CANCELLED, FAILED.
+    """
 
     success: bool
     filled: bool
-    order_id: int | None = None
+    order_id: str | None = None
     quantity: Decimal | None = None
+    filled_quantity: Decimal = Decimal(0)
     price: Decimal | None = None
     message: str = ""
     reprices: int = 0
     status: str = "PENDING"
+    partial: bool = False
 
 
 class DCAExecutor:
@@ -64,19 +69,19 @@ class DCAExecutor:
         Fetches market data, places a limit order below the ask,
         monitors for fill, and reprices if the market moves away.
         """
-        self._logger.info(f"Fetching exchange info for {config.symbol}...")
-        filters = self._client.get_exchange_info(config.symbol)
-        self._log_filters(filters)
+        self._logger.info(f"Fetching symbol rules for {config.symbol}...")
+        rules = self._client.get_symbol_rules(config.symbol)
+        self._log_rules(rules)
 
         best_ask = self._client.get_best_ask(config.symbol)
         self._logger.info(f"Best ask: {best_ask}")
 
         limit_price = self._calculate_limit_price(
-            best_ask, config.price_multiplier, filters
+            best_ask, config.price_multiplier, rules
         )
-        quantity = self._calculate_quantity(config.spend_quote, limit_price, filters)
+        quantity = self._calculate_quantity(config.spend_quote, limit_price, rules)
 
-        if error := self._validate_order(quantity, limit_price, filters):
+        if error := self._validate_order(quantity, limit_price, rules):
             return OrderResult(
                 success=False,
                 filled=False,
@@ -101,42 +106,42 @@ class DCAExecutor:
                 message="Dry run - no order placed",
             )
 
-        return self._place_and_monitor(config, quantity, limit_price, filters)
+        return self._place_and_monitor(config, quantity, limit_price, rules)
 
     def _calculate_limit_price(
-        self, best_ask: Decimal, multiplier: Decimal, filters: Filters
+        self, best_ask: Decimal, multiplier: Decimal, rules: SymbolRules
     ) -> Decimal:
         """Calculate limit price from best ask."""
         raw_price = best_ask * multiplier
-        limit_price = round_step(raw_price, filters["tick_size"])
+        limit_price = round_step(raw_price, rules.tick_size)
         self._logger.info(
             f"Limit price: {best_ask} * {multiplier} = {raw_price} -> {limit_price}"
         )
         return limit_price
 
     def _calculate_quantity(
-        self, spend: Decimal, price: Decimal, filters: Filters
+        self, spend: Decimal, price: Decimal, rules: SymbolRules
     ) -> Decimal:
         """Calculate order quantity from spend amount."""
         raw_qty = spend / price
-        quantity = round_step(raw_qty, filters["step_size"])
+        quantity = round_step(raw_qty, rules.step_size)
         self._logger.debug(f"Quantity: {spend} / {price} = {raw_qty} -> {quantity}")
         return quantity
 
     def _validate_order(
-        self, quantity: Decimal, price: Decimal, filters: Filters
+        self, quantity: Decimal, price: Decimal, rules: SymbolRules
     ) -> str | None:
-        """Validate order against exchange filters. Returns error message or None."""
-        if quantity < filters["min_qty"]:
-            return f"Quantity {quantity} below min {filters['min_qty']}"
+        """Validate order against venue rules. Returns error message or None."""
+        if quantity < rules.min_qty:
+            return f"Quantity {quantity} below min {rules.min_qty}"
 
-        if quantity > filters["max_qty"]:
-            return f"Quantity {quantity} exceeds max {filters['max_qty']}"
+        if rules.max_qty is not None and quantity > rules.max_qty:
+            return f"Quantity {quantity} exceeds max {rules.max_qty}"
 
         notional = quantity * price
-        if notional < filters["min_notional"]:
+        if notional < rules.min_notional:
             return (
-                f"Notional {notional} below min {filters['min_notional']}. "
+                f"Notional {notional} below min {rules.min_notional}. "
                 f"Increase --spend-eur."
             )
 
@@ -147,11 +152,11 @@ class DCAExecutor:
         config: OrderConfig,
         quantity: Decimal,
         limit_price: Decimal,
-        filters: Filters,
+        rules: SymbolRules,
     ) -> OrderResult:
         """Place order and monitor until filled or give up."""
         self._logger.info("Placing limit order...")
-        response = self._client.place_limit_order(
+        placed = self._client.place_limit_order(
             symbol=config.symbol,
             side="BUY",
             quantity=quantity,
@@ -159,31 +164,30 @@ class DCAExecutor:
             time_in_force=config.time_in_force,
         )
 
-        order_id: int = response["orderId"]
-        status = response.get("status")
-        self._logger.info(f"Order placed: id={order_id}, status={status}")
+        self._logger.info(f"Order placed: id={placed.id}, status={placed.status}")
 
-        if status == "FILLED":
+        if placed.status is OrderStatus.FILLED:
             return OrderResult(
                 success=True,
                 filled=True,
-                order_id=order_id,
+                order_id=placed.id,
                 quantity=quantity,
                 price=limit_price,
                 message="Filled immediately",
                 reprices=0,
                 status="FILLED",
+                filled_quantity=quantity,
             )
 
-        return self._monitor_order(config, order_id, quantity, limit_price, filters)
+        return self._monitor_order(config, placed.id, quantity, limit_price, rules)
 
     def _monitor_order(
         self,
         config: OrderConfig,
-        order_id: int,
+        order_id: str,
         quantity: Decimal,
         limit_price: Decimal,
-        filters: Filters,
+        rules: SymbolRules,
     ) -> OrderResult:
         """Monitor order and reprice if market moves away."""
         current_order_id = order_id
@@ -203,11 +207,10 @@ class DCAExecutor:
             time.sleep(config.poll_interval)
             check_num += 1
 
-            order_status = self._client.get_order(config.symbol, current_order_id)
-            status = order_status.get("status")
+            snapshot = self._client.get_order(config.symbol, current_order_id)
             current_ask = self._client.get_best_ask(config.symbol)
 
-            if status == "FILLED":
+            if snapshot.status is OrderStatus.FILLED:
                 self._logger.info(f"[{check_num}] FILLED")
                 return OrderResult(
                     success=True,
@@ -218,17 +221,29 @@ class DCAExecutor:
                     message="Order filled",
                     reprices=reprice_count,
                     status="FILLED",
+                    filled_quantity=quantity,
                 )
 
-            if status not in ("NEW", "PARTIALLY_FILLED"):
-                self._logger.warning(f"[{check_num}] Unexpected status: {status}")
+            # Terminal states reached without us asking: the venue cancelled or rejected
+            # the order. A cancel can still carry a partial fill, which is a real purchase.
+            if snapshot.status in (OrderStatus.CANCELLED, OrderStatus.FAILED):
+                if snapshot.filled_qty > 0:
+                    return self._settle_partial(
+                        current_order_id,
+                        quantity,
+                        snapshot.filled_qty,
+                        current_price,
+                        reprice_count,
+                        "Order ended early with a partial fill",
+                    )
+                self._logger.warning(f"[{check_num}] Unexpected status: {snapshot.status}")
                 return OrderResult(
                     success=False,
                     filled=False,
                     order_id=current_order_id,
                     quantity=quantity,
                     price=current_price,
-                    message=f"Unexpected status: {status}",
+                    message=f"Unexpected status: {snapshot.status}",
                     reprices=reprice_count,
                     status="FAILED",
                 )
@@ -237,7 +252,7 @@ class DCAExecutor:
                 intervals_above += 1
                 self._log_check(
                     check_num,
-                    status,
+                    snapshot.status,
                     current_price,
                     current_ask,
                     intervals_above,
@@ -245,11 +260,43 @@ class DCAExecutor:
                 )
 
                 if intervals_above >= config.intervals_before_reprice:
+                    # Never reprice a partially filled order: cancelling it to chase the
+                    # market would leave the executed portion stranded and unrecorded.
+                    if snapshot.filled_qty > 0:
+                        self._logger.info(
+                            f"[{check_num}] Partially filled ({snapshot.filled_qty}), "
+                            f"settling instead of repricing"
+                        )
+                        self._client.cancel_order(config.symbol, current_order_id)
+                        final = self._final_snapshot(config.symbol, current_order_id, snapshot)
+                        return self._settle_partial(
+                            current_order_id,
+                            quantity,
+                            final.filled_qty,
+                            current_price,
+                            reprice_count,
+                            "Partial fill settled",
+                        )
+
                     if reprice_count >= config.max_reprices:
                         self._logger.info(
                             f"Max reprices ({config.max_reprices}) reached, giving up"
                         )
                         self._client.cancel_order(config.symbol, current_order_id)
+
+                        # A fill can land between the last poll and the cancel; re-read
+                        # before declaring that nothing was bought.
+                        final = self._final_snapshot(config.symbol, current_order_id, snapshot)
+                        if final.filled_qty > 0:
+                            return self._settle_partial(
+                                current_order_id,
+                                quantity,
+                                final.filled_qty,
+                                current_price,
+                                reprice_count,
+                                "Filled during cancellation",
+                            )
+
                         return OrderResult(
                             success=True,
                             filled=False,
@@ -261,10 +308,10 @@ class DCAExecutor:
                             status="CANCELLED",
                         )
 
-                    multiplier = REPRICE_MULTIPLIERS[reprice_count]
-                    new_limit = round_step(
-                        current_ask * multiplier, filters["tick_size"]
-                    )
+                    multiplier = REPRICE_MULTIPLIERS[
+                        min(reprice_count, len(REPRICE_MULTIPLIERS) - 1)
+                    ]
+                    new_limit = round_step(current_ask * multiplier, rules.tick_size)
                     if new_limit <= current_price:
                         self._logger.info(
                             f"[{check_num}] Skipping reprice - price trending down "
@@ -279,7 +326,7 @@ class DCAExecutor:
                         quantity,
                         current_ask,
                         multiplier,
-                        filters,
+                        rules,
                     )
                     reprice_count += 1
                     intervals_above = 0
@@ -291,23 +338,63 @@ class DCAExecutor:
                 reset = intervals_above > 0
                 intervals_above = 0
                 self._log_check(
-                    check_num, status, current_price, current_ask, 0, config, reset
+                    check_num, snapshot.status, current_price, current_ask, 0, config, reset
                 )
+
+    def _final_snapshot(
+        self, symbol: str, order_id: str, fallback: OrderSnapshot
+    ) -> OrderSnapshot:
+        """Re-read an order after cancelling, falling back if the venue has forgotten it."""
+        try:
+            return self._client.get_order(symbol, order_id)
+        except Exception as e:
+            self._logger.warning(f"Could not re-read order {order_id} after cancel: {e}")
+            return fallback
+
+    def _settle_partial(
+        self,
+        order_id: str,
+        requested_qty: Decimal,
+        filled_qty: Decimal,
+        price: Decimal,
+        reprice_count: int,
+        message: str,
+    ) -> OrderResult:
+        """
+        Record a partial fill as the purchase it is.
+
+        A fill that completed the order is reported as FILLED; anything short of that as
+        PARTIALLY_FILLED. Both close the weekly gate, because both mean coin was acquired.
+        """
+        complete = filled_qty >= requested_qty
+        self._logger.info(f"Acquired {filled_qty}/{requested_qty} @ {price}")
+        return OrderResult(
+            success=True,
+            filled=True,
+            order_id=order_id,
+            quantity=requested_qty,
+            filled_quantity=filled_qty,
+            price=price,
+            message=message,
+            reprices=reprice_count,
+            status="FILLED" if complete else "PARTIALLY_FILLED",
+            partial=not complete,
+        )
 
     def _reprice_order(
         self,
         config: OrderConfig,
-        old_order_id: int,
+        old_order_id: str,
         quantity: Decimal,
         current_ask: Decimal,
         multiplier: Decimal,
-        filters: Filters,
-    ) -> tuple[int, Decimal]:
+        rules: SymbolRules,
+    ) -> tuple[str, Decimal]:
         """Cancel old order and place new one at current price."""
         self._client.cancel_order(config.symbol, old_order_id)
 
-        new_price = round_step(current_ask * multiplier, filters["tick_size"])
-        response = self._client.place_limit_order(
+        new_price = round_step(current_ask * multiplier, rules.tick_size)
+        placed = self._client.place_limit_order(
             symbol=config.symbol,
             side="BUY",
             quantity=quantity,
@@ -315,14 +402,14 @@ class DCAExecutor:
             time_in_force=config.time_in_force,
         )
 
-        return response["orderId"], new_price
+        return placed.id, new_price
 
-    def _log_filters(self, filters: Filters) -> None:
-        """Log exchange filters."""
+    def _log_rules(self, rules: SymbolRules) -> None:
+        """Log venue trading rules."""
         self._logger.info(
-            f"Filters: tick={filters['tick_size']}, "
-            f"step={filters['step_size']}, "
-            f"min_notional={filters['min_notional']}"
+            f"Rules: tick={rules.tick_size}, "
+            f"step={rules.step_size}, "
+            f"min_notional={rules.min_notional}"
         )
 
     def _log_dry_run(
@@ -338,7 +425,7 @@ class DCAExecutor:
     def _log_check(
         self,
         check_num: int,
-        status: str | None,
+        status: OrderStatus,
         limit: Decimal,
         ask: Decimal,
         intervals_above: int,

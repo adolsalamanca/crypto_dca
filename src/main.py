@@ -12,6 +12,9 @@ from psycopg.rows import TupleRow
 from psycopg_pool import ConnectionPool, PoolTimeout
 
 from src.infrastructure.binance_client import BinanceAPIError, BinanceClient
+from src.infrastructure.coinbase_client import PRODUCTION_URL as COINBASE_URL
+from src.infrastructure.coinbase_client import CoinbaseAPIError, CoinbaseClient
+from src.infrastructure.exchange import ExchangeInterface
 from src.cli import normalize_symbol, parse_args, validate_args
 from src.dca_executor import DCAExecutor, OrderConfig
 from src.domain.models import Order
@@ -20,6 +23,49 @@ from src.utils import is_same_week
 
 DB_CONNECT_RETRY_INTERVAL_SECS = 60
 DB_CONNECT_MAX_RETRIES = 10
+
+BINANCE_URL = "https://api.binance.com"
+
+
+def build_client(
+    exchange: str, base_url: str | None, recv_window: int, logger: logging.Logger
+) -> ExchangeInterface:
+    """
+    Construct the client for the selected exchange.
+
+    Raises ValueError with an actionable message when credentials are missing, so the
+    caller can exit cleanly rather than failing on the first signed request.
+    """
+    if exchange == "coinbase":
+        key = os.environ.get("COINBASE_API_KEY")
+        secret = os.environ.get("COINBASE_API_SECRET")
+        passphrase = os.environ.get("COINBASE_PASSPHRASE")
+        if not key or not secret or not passphrase:
+            raise ValueError(
+                "COINBASE_API_KEY, COINBASE_API_SECRET and COINBASE_PASSPHRASE "
+                "environment variables required"
+            )
+        return CoinbaseClient(
+            api_key=key,
+            api_secret=secret,
+            passphrase=passphrase,
+            base_url=base_url or COINBASE_URL,
+            logger=logger,
+        )
+
+    key = os.environ.get("BINANCE_API_KEY")
+    secret = os.environ.get("BINANCE_API_SECRET")
+    if not key or not secret:
+        raise ValueError(
+            "BINANCE_API_KEY and BINANCE_API_SECRET environment variables required"
+        )
+    return BinanceClient(
+        api_key=key,
+        api_secret=secret,
+        base_url=base_url or BINANCE_URL,
+        recv_window=recv_window,
+        logger=logger,
+    )
 
 
 def main() -> int:
@@ -42,15 +88,7 @@ def main() -> int:
         logger.error(f"Configuration error: {e}")
         return 1
 
-    api_key = os.environ.get("BINANCE_API_KEY")
-    api_secret = os.environ.get("BINANCE_API_SECRET")
     db_url = os.environ.get("DATABASE_URL")
-
-    if not api_key or not api_secret:
-        logger.error(
-            "BINANCE_API_KEY and BINANCE_API_SECRET environment variables required"
-        )
-        return 1
 
     if not db_url:
         logger.error("DATABASE_URL environment variable required")
@@ -59,7 +97,8 @@ def main() -> int:
     symbol = normalize_symbol(args.symbol)
 
     logger.debug(
-        f"Symbol: {symbol} | Spend: {args.spend_eur} EUR | Multiplier: {args.price_multiplier}"
+        f"Exchange: {args.exchange} | Symbol: {symbol} | "
+        f"Spend: {args.spend_eur} EUR | Multiplier: {args.price_multiplier}"
     )
     logger.info(
         f"Poll: {args.poll_interval}s | Reprice after: {args.intervals_before_reprice} | Max reprices: {args.max_reprices}"
@@ -107,12 +146,8 @@ def main() -> int:
             logger.warning(f"Weekly check failed: {e}. Proceeding with order.")
 
         # Execute DCA order
-        client = BinanceClient(
-            api_key=api_key,
-            api_secret=api_secret,
-            base_url=args.base_url,
-            recv_window=args.recv_window,
-            logger=logger,
+        client = build_client(
+            args.exchange, args.base_url, args.recv_window, logger
         )
 
         config = OrderConfig(
@@ -142,6 +177,8 @@ def main() -> int:
                             side="BUY",
                             price=result.price,
                             quantity=result.quantity,
+                            filled_quantity=result.filled_quantity,
+                            exchange_order_id=result.order_id,
                             multiplier=args.price_multiplier,
                             reprices=result.reprices,
                             status=result.status,
@@ -154,7 +191,12 @@ def main() -> int:
                 # Don't fail the main flow
 
         # Log result
-        if result.filled:
+        if result.filled and result.partial:
+            logger.info(
+                f"SUCCESS: Partial fill - acquired {result.filled_quantity}"
+                f" of {result.quantity} @ {result.price}"
+            )
+        elif result.filled:
             logger.info(f"SUCCESS: Order filled - {result.price}")
         elif result.success:
             logger.info(f"COMPLETE: {result.message}")
@@ -163,8 +205,11 @@ def main() -> int:
 
         return 0 if result.success else 1
 
-    except BinanceAPIError as e:
-        logger.error(f"Binance API error: {e}")
+    except (BinanceAPIError, CoinbaseAPIError) as e:
+        logger.error(f"Exchange API error: {e}")
+        return 1
+    except ValueError as e:
+        logger.error(f"Configuration error: {e}")
         return 1
     except Exception as e:
         logger.exception(f"Unexpected error: {e}")

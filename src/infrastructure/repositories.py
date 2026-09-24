@@ -60,8 +60,9 @@ class PostgresRepository(Repository):
             result = conn.execute(
                 """
                 INSERT INTO crypto_dca.orders
-                (user_id, symbol, side, price, quantity, multiplier, reprices, status, created_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                (user_id, symbol, side, price, quantity, filled_quantity,
+                 exchange_order_id, multiplier, reprices, status, created_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING id
                 """,
                 (
@@ -70,6 +71,8 @@ class PostgresRepository(Repository):
                     order.side,
                     order.price,
                     order.quantity,
+                    order.filled_quantity,
+                    order.exchange_order_id,
                     order.multiplier,
                     order.reprices,
                     order.status,
@@ -95,6 +98,7 @@ class PostgresRepository(Repository):
                 cur.execute(
                     """
                     SELECT order_id, user_id, symbol, side, price, quantity,
+                           filled_quantity, exchange_order_id,
                            multiplier, reprices, status, created_at
                     FROM crypto_dca.last_orders
                     WHERE user_id = %s AND symbol = %s AND side = %s
@@ -113,8 +117,10 @@ class PostgresRepository(Repository):
                     side=row[3],
                     price=row[4],
                     quantity=row[5],
-                    multiplier=row[6],
-                    reprices=row[7],
-                    status=row[8],
-                    created_at=row[9],
+                    filled_quantity=row[6],
+                    exchange_order_id=row[7],
+                    multiplier=row[8],
+                    reprices=row[9],
+                    status=row[10],
+                    created_at=row[11],
                 )

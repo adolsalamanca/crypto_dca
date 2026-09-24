@@ -49,7 +49,7 @@ jobs:
           USER_ID: ${{ secrets.USER_ID }}
         run: |
           uv run python -m src.main \
-            --symbol "${{ vars.SYMBOL || 'BTCEUR' }}" \
+            --symbol "${{ vars.SYMBOL || 'BTC-EUR' }}" \
             --spend-eur "${{ secrets.SPEND_EUR || '50' }}" \
             --price-multiplier "${{ vars.PRICE_MULTIPLIER || '0.999' }}" \
             --time-in-force "${{ vars.TIME_IN_FORCE || 'GTC' }}" \

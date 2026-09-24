@@ -8,8 +8,22 @@ from uuid import UUID
 
 
 def normalize_symbol(symbol: str) -> str:
-    """Normalize trading pair symbol to Binance format (e.g., BTC/EUR -> BTCEUR)."""
-    return re.sub(r"[-/_]", "", symbol.upper())
+    """
+    Normalize a trading pair to the canonical BASE-QUOTE form (e.g. BTC/EUR -> BTC-EUR).
+
+    The separator is kept deliberately. An unseparated pair like 'BTCEUR' cannot be split
+    back into base and quote without a hardcoded table of quote assets, which silently
+    mis-splits every asset missing from it. Each exchange client renders this canonical
+    form into its own notation; that direction is always unambiguous.
+    """
+    normalized = re.sub(r"[/_]", "-", symbol.upper().strip())
+
+    if normalized.count("-") != 1 or normalized.startswith("-") or normalized.endswith("-"):
+        raise ValueError(
+            f"Invalid symbol '{symbol}': expected BASE-QUOTE, for example BTC-EUR"
+        )
+
+    return normalized
 
 
 def parse_args() -> argparse.Namespace:
@@ -20,9 +34,20 @@ def parse_args() -> argparse.Namespace:
     )
 
     parser.add_argument(
+        "--exchange",
+        default=os.environ.get("EXCHANGE", "binance"),
+        choices=["binance", "coinbase"],
+        help="Which exchange to trade on",
+    )
+
+    parser.add_argument(
         "--base-url",
-        default=os.environ.get("BINANCE_BASE_URL", "https://api.binance.com"),
-        help="Binance API base URL (use https://testnet.binance.vision for testnet)",
+        default=os.environ.get("BASE_URL") or os.environ.get("BINANCE_BASE_URL"),
+        help=(
+            "Exchange API base URL. Defaults per exchange; use "
+            "https://testnet.binance.vision (Binance testnet) or "
+            "https://api-public.sandbox.exchange.coinbase.com (Coinbase sandbox)"
+        ),
     )
 
     parser.add_argument(
@@ -105,6 +130,10 @@ def parse_args() -> argparse.Namespace:
 
 def validate_args(args: argparse.Namespace) -> None:
     """Validate command line arguments. Raises ValueError on invalid input."""
+    # Raises on a symbol that cannot be split; checked here so main() reports it as a
+    # configuration error rather than failing later with an unhandled exception.
+    normalize_symbol(args.symbol)
+
     spend_eur = args.spend_eur
 
     if isinstance(spend_eur, str):
