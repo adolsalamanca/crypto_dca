@@ -40,16 +40,13 @@ def build_client(
     if exchange == "coinbase":
         key = os.environ.get("COINBASE_API_KEY")
         secret = os.environ.get("COINBASE_API_SECRET")
-        passphrase = os.environ.get("COINBASE_PASSPHRASE")
-        if not key or not secret or not passphrase:
+        if not key or not secret:
             raise ValueError(
-                "COINBASE_API_KEY, COINBASE_API_SECRET and COINBASE_PASSPHRASE "
-                "environment variables required"
+                "COINBASE_API_KEY and COINBASE_API_SECRET environment variables required"
             )
         return CoinbaseClient(
             api_key=key,
             api_secret=secret,
-            passphrase=passphrase,
             base_url=base_url or COINBASE_URL,
             logger=logger,
         )

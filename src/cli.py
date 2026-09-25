@@ -35,7 +35,7 @@ def parse_args() -> argparse.Namespace:
 
     parser.add_argument(
         "--exchange",
-        default=os.environ.get("EXCHANGE", "binance"),
+        default=os.environ.get("EXCHANGE", "coinbase"),
         choices=["binance", "coinbase"],
         help="Which exchange to trade on",
     )
@@ -52,8 +52,8 @@ def parse_args() -> argparse.Namespace:
 
     parser.add_argument(
         "--symbol",
-        default=os.environ.get("SYMBOL", "BTCEUR"),
-        help="Trading pair symbol (e.g., BTCEUR, BTC/EUR, BTC-EUR)",
+        default=os.environ.get("SYMBOL", "BTC-EUR"),
+        help="Trading pair symbol as BASE-QUOTE (e.g., BTC-EUR, BTC/EUR, BTC_EUR)",
     )
 
     parser.add_argument(

@@ -8,9 +8,13 @@ regression would silently place or abandon real orders.
 Payloads are recorded verbatim from the live APIs.
 """
 
+import base64
 from decimal import Decimal
 
+import jwt
 import pytest
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from src.domain.models import OrderStatus
 from src.infrastructure.binance_client import BinanceAPIError, BinanceClient
@@ -37,15 +41,19 @@ BINANCE_EXCHANGE_INFO = {
 }
 
 COINBASE_PRODUCT = {
-    "id": "BTC-EUR",
-    "base_currency": "BTC",
-    "quote_currency": "EUR",
+    "product_id": "BTC-EUR",
+    "price": "81115.38",
     "quote_increment": "0.01",
     "base_increment": "0.00000001",
-    "min_market_funds": "0.84",
+    "quote_min_size": "1",
+    "base_min_size": "0.000016",
+    "base_max_size": "1500",
     "status": "online",
     "trading_disabled": False,
 }
+
+# Any 32 bytes is a valid Ed25519 seed; fixed so the tests stay deterministic.
+ED25519_SECRET = base64.b64encode(bytes(range(32))).decode()
 
 
 @pytest.fixture
@@ -55,8 +63,7 @@ def binance() -> BinanceClient:
 
 @pytest.fixture
 def coinbase() -> CoinbaseClient:
-    # Secret must be valid base64: Coinbase decodes it before signing.
-    return CoinbaseClient(api_key="k", api_secret="c2VjcmV0", passphrase="p")
+    return CoinbaseClient(api_key="k", api_secret=ED25519_SECRET)
 
 
 # ── symbol rendering ─────────────────────────────────────────────────────────
@@ -103,9 +110,9 @@ def test_coinbase_rules_mapping(coinbase, monkeypatch):
 
     assert rules.tick_size == Decimal("0.01")
     assert rules.step_size == Decimal("0.00000001")
-    assert rules.min_notional == Decimal("0.84")
-    # Coinbase publishes no per-order maximum; validation must skip the check.
-    assert rules.max_qty is None
+    assert rules.min_qty == Decimal("0.000016")
+    assert rules.max_qty == Decimal(1500)
+    assert rules.min_notional == Decimal(1)
 
 
 def test_coinbase_refuses_disabled_product(coinbase, monkeypatch):
@@ -138,25 +145,19 @@ def test_binance_status_mapping(raw, expected):
 @pytest.mark.parametrize(
     "payload,expected",
     [
-        # pending is *earlier* than open, not a partial fill.
-        ({"status": "pending", "filled_size": "0"}, OrderStatus.NEW),
-        ({"status": "open", "filled_size": "0"}, OrderStatus.NEW),
+        # PENDING and QUEUED are *earlier* than OPEN, not partial fills.
+        ({"status": "PENDING", "filled_size": "0"}, OrderStatus.NEW),
+        ({"status": "QUEUED", "filled_size": "0"}, OrderStatus.NEW),
+        ({"status": "OPEN", "filled_size": "0"}, OrderStatus.NEW),
         # A partial fill is filled_size on an open order, not a status of its own.
-        ({"status": "open", "filled_size": "0.0003"}, OrderStatus.PARTIALLY_FILLED),
-        (
-            {"status": "done", "done_reason": "filled", "filled_size": "0.00073"},
-            OrderStatus.FILLED,
-        ),
+        ({"status": "OPEN", "filled_size": "0.0003"}, OrderStatus.PARTIALLY_FILLED),
+        ({"status": "FILLED", "filled_size": "0.00073"}, OrderStatus.FILLED),
         # Cancelled after partially filling: a real purchase, must not be discarded.
-        (
-            {"status": "done", "done_reason": "canceled", "filled_size": "0.0004"},
-            OrderStatus.PARTIALLY_FILLED,
-        ),
-        (
-            {"status": "done", "done_reason": "canceled", "filled_size": "0"},
-            OrderStatus.CANCELLED,
-        ),
-        ({"status": "rejected", "filled_size": "0"}, OrderStatus.FAILED),
+        ({"status": "CANCELLED", "filled_size": "0.0004"}, OrderStatus.PARTIALLY_FILLED),
+        ({"status": "CANCELLED", "filled_size": "0"}, OrderStatus.CANCELLED),
+        ({"status": "EXPIRED", "filled_size": "0.0004"}, OrderStatus.PARTIALLY_FILLED),
+        ({"status": "FAILED", "filled_size": "0"}, OrderStatus.FAILED),
+        ({"status": "UNKNOWN_ORDER_STATUS", "filled_size": "0"}, OrderStatus.FAILED),
     ],
 )
 def test_coinbase_status_mapping(payload, expected):
@@ -182,14 +183,46 @@ def test_binance_place_returns_string_id(binance, monkeypatch):
 def test_coinbase_place_returns_uuid_id(coinbase, monkeypatch):
     uuid = "a9f3c1e2-5b6d-4e7a-8c9f-0d1e2f3a4b5c"
     monkeypatch.setattr(
-        coinbase, "_request", lambda *a, **k: {"id": uuid, "status": "pending"}
+        coinbase,
+        "_request",
+        lambda *a, **k: {"success": True, "success_response": {"order_id": uuid}},
     )
     placed = coinbase.place_limit_order(
-        "BTCEUR", "BUY", Decimal("0.00073"), Decimal("68452.55")
+        "BTC-EUR", "BUY", Decimal("0.00073"), Decimal("68452.55")
     )
 
     assert placed.id == uuid
     assert placed.status is OrderStatus.NEW
+
+
+def test_coinbase_place_raises_on_rejection_in_a_200_body(coinbase, monkeypatch):
+    """Advanced Trade reports rejection with HTTP 200, so success must be checked."""
+    monkeypatch.setattr(
+        coinbase,
+        "_request",
+        lambda *a, **k: {
+            "success": False,
+            "error_response": {
+                "message": "The order configuration was invalid",
+                "error_details": "limit price too far from market",
+                "new_order_failure_reason": "INVALID_LIMIT_PRICE",
+            },
+        },
+    )
+
+    with pytest.raises(CoinbaseAPIError) as excinfo:
+        coinbase.place_limit_order(
+            "BTC-EUR", "BUY", Decimal("0.00073"), Decimal("1.00")
+        )
+
+    assert excinfo.value.code == "INVALID_LIMIT_PRICE"
+
+
+def test_coinbase_place_refuses_unsupported_time_in_force(coinbase):
+    with pytest.raises(CoinbaseAPIError):
+        coinbase.place_limit_order(
+            "BTC-EUR", "BUY", Decimal("0.001"), Decimal(68000), time_in_force="IOC"
+        )
 
 
 def test_binance_snapshot_exposes_filled_quantity(binance, monkeypatch):
@@ -212,9 +245,11 @@ def test_coinbase_snapshot_exposes_filled_quantity(coinbase, monkeypatch):
     monkeypatch.setattr(
         coinbase,
         "_request",
-        lambda *a, **k: {"id": "x", "status": "open", "filled_size": "0.00031"},
+        lambda *a, **k: {
+            "order": {"order_id": "x", "status": "OPEN", "filled_size": "0.00031"}
+        },
     )
-    snap = coinbase.get_order("BTCEUR", "x")
+    snap = coinbase.get_order("BTC-EUR", "x")
 
     assert snap.status is OrderStatus.PARTIALLY_FILLED
     assert snap.filled_qty == Decimal("0.00031")
@@ -241,20 +276,122 @@ def test_binance_cancel_still_raises_on_real_errors(binance, monkeypatch):
 
 
 def test_coinbase_cancel_tolerates_missing_order(coinbase, monkeypatch):
-    def boom(*a, **k):
-        raise CoinbaseAPIError(404, None, "order not found")
+    """batch_cancel reports an already-gone order as a failure result, not an HTTP error."""
+    monkeypatch.setattr(
+        coinbase,
+        "_request",
+        lambda *a, **k: {
+            "results": [{"success": False, "failure_reason": "UNKNOWN_CANCEL_ORDER"}]
+        },
+    )
+    coinbase.cancel_order("BTC-EUR", "x")  # must not raise
 
-    monkeypatch.setattr(coinbase, "_request", boom)
-    coinbase.cancel_order("BTCEUR", "x")  # must not raise
+
+def test_coinbase_cancel_still_raises_on_real_errors(coinbase, monkeypatch):
+    monkeypatch.setattr(
+        coinbase,
+        "_request",
+        lambda *a, **k: {
+            "results": [{"success": False, "failure_reason": "COMMANDER_REJECTED_CANCEL_ORDER"}]
+        },
+    )
+    with pytest.raises(CoinbaseAPIError):
+        coinbase.cancel_order("BTC-EUR", "x")
 
 
-# ── signing ──────────────────────────────────────────────────────────────────
+# ── JWT authentication ───────────────────────────────────────────────────────
 
 
-def test_coinbase_signature_is_base64_over_path_and_body(coinbase):
-    sig = coinbase._sign("1700000000", "POST", "/orders", '{"size":"1"}')
-    import base64
+def test_coinbase_jwt_binds_method_host_and_path(coinbase):
+    """The uri claim is what stops a token being replayed against another endpoint."""
+    token = coinbase._jwt("POST", "/api/v3/brokerage/orders")
 
-    assert base64.b64decode(sig)  # valid base64
-    # Body is covered by the signature: changing it must change the digest.
-    assert sig != coinbase._sign("1700000000", "POST", "/orders", '{"size":"2"}')
+    header = jwt.get_unverified_header(token)
+    claims = jwt.decode(token, options={"verify_signature": False})
+
+    assert header["alg"] == "EdDSA"
+    assert header["kid"] == "k"
+    assert claims["sub"] == "k"
+    assert claims["iss"] == "cdp"
+    assert claims["uri"] == "POST api.coinbase.com/api/v3/brokerage/orders"
+    assert claims["exp"] - claims["nbf"] == 120
+
+
+def test_coinbase_jwt_differs_per_request(coinbase):
+    a = coinbase._jwt("GET", "/api/v3/brokerage/products/BTC-EUR")
+    b = coinbase._jwt("POST", "/api/v3/brokerage/orders")
+    assert a != b
+
+    # The nonce makes even two identical requests distinct.
+    assert coinbase._jwt("GET", "/x") != coinbase._jwt("GET", "/x")
+
+
+def test_coinbase_jwt_signature_verifies_against_the_public_key(coinbase):
+    """A malformed token would be rejected by Coinbase, not by us: verify it here."""
+    public_key = Ed25519PrivateKey.from_private_bytes(
+        base64.b64decode(ED25519_SECRET)
+    ).public_key()
+    token = coinbase._jwt("GET", "/api/v3/brokerage/accounts")
+
+    claims = jwt.decode(token, public_key, algorithms=["EdDSA"])
+
+    assert claims["uri"] == "GET api.coinbase.com/api/v3/brokerage/accounts"
+
+
+def test_coinbase_accepts_a_64_byte_ed25519_secret():
+    """The CDP portal hands out seed||public_key; only the first 32 bytes are the seed."""
+    seed = bytes(range(32))
+    public = Ed25519PrivateKey.from_private_bytes(seed).public_key().public_bytes_raw()
+    client = CoinbaseClient(
+        api_key="k", api_secret=base64.b64encode(seed + public).decode()
+    )
+
+    assert jwt.get_unverified_header(client._jwt("GET", "/x"))["alg"] == "EdDSA"
+
+
+def test_coinbase_accepts_a_legacy_ecdsa_pem_secret():
+    from cryptography.hazmat.primitives.asymmetric import ec
+
+    pem = (
+        ec.generate_private_key(ec.SECP256R1())
+        .private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.NoEncryption(),
+        )
+        .decode()
+    )
+    client = CoinbaseClient(api_key="k", api_secret=pem)
+
+    assert jwt.get_unverified_header(client._jwt("GET", "/x"))["alg"] == "ES256"
+
+
+def test_coinbase_rejects_an_unusable_secret():
+    with pytest.raises(ValueError):
+        CoinbaseClient(api_key="k", api_secret=base64.b64encode(b"too-short").decode())
+
+
+class _NonJsonResponse:
+    """An HTML error page, as returned by auth failures and edge-proxy blocks."""
+
+    def __init__(self, status_code: int, text: str):
+        self.status_code = status_code
+        self.text = text
+        self.ok = 200 <= status_code < 300
+
+    def json(self):
+        raise ValueError("not json")
+
+
+def test_coinbase_reports_status_for_a_non_json_error_body(coinbase, monkeypatch):
+    """A decode failure must not be reported as a transport error: the status matters."""
+    monkeypatch.setattr(
+        coinbase.session,
+        "request",
+        lambda *a, **k: _NonJsonResponse(401, "<html>Unauthorized</html>"),
+    )
+
+    with pytest.raises(CoinbaseAPIError) as excinfo:
+        coinbase.get_symbol_rules("BTC-EUR")
+
+    assert excinfo.value.status_code == 401

@@ -3,8 +3,8 @@
 The interface exposes only domain operations. Transport concerns — how a request is
 signed, which headers carry credentials, whether the payload is a query string or a JSON
 body — are private to each implementation, because they genuinely differ: Binance signs a
-urlencoded query string to hex, Coinbase signs `timestamp + method + path + body` to
-base64 with a base64-decoded secret. There is no shared signature worth declaring.
+urlencoded query string to hex with a shared secret, Coinbase mints a per-request JWT
+signed with an Ed25519 private key. There is no shared signature worth declaring.
 """
 
 import logging

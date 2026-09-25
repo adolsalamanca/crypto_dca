@@ -186,6 +186,39 @@ def test_get_last_order_different_sides(repo):
     assert last_sell.side == "SELL"
 
 
+def test_get_last_order_different_symbols(repo):
+    """Two coins on the same schedule must not clobber each other's weekly check."""
+    user = User(name="Frank")
+    user_id = repo.add_user(user)
+
+    def filled(symbol: str, price: str) -> Order:
+        return Order(
+            user_id=user_id,
+            symbol=symbol,
+            side="BUY",
+            price=Decimal(price),
+            quantity=Decimal("0.1"),
+            multiplier=Decimal("0.999"),
+            reprices=0,
+            status="FILLED",
+            created_at=datetime.now(UTC),
+        )
+
+    btc_id = repo.add_order(filled("BTC-EUR", "68000.00"))
+    eth_id = repo.add_order(filled("ETH-EUR", "3000.00"))
+
+    last_btc = repo.get_last_order(user_id, "BTC-EUR", "BUY")
+    last_eth = repo.get_last_order(user_id, "ETH-EUR", "BUY")
+
+    assert last_btc is not None
+    assert last_btc.id == btc_id
+    assert last_btc.symbol == "BTC-EUR"
+
+    assert last_eth is not None
+    assert last_eth.id == eth_id
+    assert last_eth.symbol == "ETH-EUR"
+
+
 def test_get_last_order_not_found(repo):
     """Test getting last order when none exists."""
     user = User(name="Eve")
