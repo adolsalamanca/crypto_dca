@@ -54,3 +54,12 @@ uv.lock
 
 # llms
 .claude/
+
+# teach workspace
+MISSION.md
+RESOURCES.md
+NOTES.md
+lessons/
+reference/
+learning-records/
+assets/

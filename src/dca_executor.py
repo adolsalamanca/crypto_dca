@@ -347,7 +347,7 @@ class DCAExecutor:
         """Re-read an order after cancelling, falling back if the venue has forgotten it."""
         try:
             return self._client.get_order(symbol, order_id)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             self._logger.warning(f"Could not re-read order {order_id} after cancel: {e}")
             return fallback
 

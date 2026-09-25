@@ -146,7 +146,7 @@ def validate_args(args: argparse.Namespace) -> None:
     if spend_eur <= 0:
         raise ValueError(f"--spend-eur must be positive, got {spend_eur}")
 
-    if not (Decimal("0") < args.price_multiplier < Decimal("1")):
+    if not (Decimal(0) < args.price_multiplier < Decimal(1)):
         raise ValueError(
             f"--price-multiplier must be between 0 and 1, got {args.price_multiplier}"
         )

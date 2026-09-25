@@ -17,8 +17,8 @@ RULES = SymbolRules(
     tick_size=Decimal("0.01"),
     step_size=Decimal("0.00001"),
     min_qty=Decimal("0.00001"),
-    min_notional=Decimal("5"),
-    max_qty=Decimal("9000"),
+    min_notional=Decimal(5),
+    max_qty=Decimal(9000),
 )
 
 
@@ -65,7 +65,7 @@ def snap(status: OrderStatus, filled="0") -> OrderSnapshot:
 def config() -> OrderConfig:
     return OrderConfig(
         symbol="BTC-EUR",
-        spend_quote=Decimal("50"),
+        spend_quote=Decimal(50),
         price_multiplier=Decimal("0.999"),
         time_in_force="GTC",
         poll_interval=0,

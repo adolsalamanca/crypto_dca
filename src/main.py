@@ -5,20 +5,21 @@ import os
 import sys
 import time
 from datetime import UTC, datetime
+from decimal import Decimal
 from uuid import UUID
 
 from psycopg import Connection, OperationalError
 from psycopg.rows import TupleRow
 from psycopg_pool import ConnectionPool, PoolTimeout
 
+from src.cli import normalize_symbol, parse_args, validate_args
+from src.dca_executor import DCAExecutor, OrderConfig, OrderResult
+from src.domain.models import Order
 from src.infrastructure.binance_client import BinanceAPIError, BinanceClient
 from src.infrastructure.coinbase_client import PRODUCTION_URL as COINBASE_URL
 from src.infrastructure.coinbase_client import CoinbaseAPIError, CoinbaseClient
 from src.infrastructure.exchange import ExchangeInterface
-from src.cli import normalize_symbol, parse_args, validate_args
-from src.dca_executor import DCAExecutor, OrderConfig
-from src.domain.models import Order
-from src.infrastructure.repositories import PostgresRepository
+from src.infrastructure.repositories import PostgresRepository, Repository
 from src.utils import is_same_week
 
 DB_CONNECT_RETRY_INTERVAL_SECS = 60
@@ -66,6 +67,48 @@ def build_client(
         recv_window=recv_window,
         logger=logger,
     )
+
+
+def persist_order(
+    repo: Repository,
+    user_id: UUID,
+    symbol: str,
+    result: OrderResult,
+    multiplier: Decimal,
+    logger: logging.Logger,
+) -> bool:
+    """Record a placed order.
+
+    Returns False when an order reached the exchange but could not be recorded.
+    The weekly check reads this table, so an unrecorded order can lead to another
+    order being placed on a later run.
+    """
+    if result.price is None or result.quantity is None:
+        logger.warning("Order result missing price or quantity, cannot save to database")
+        return result.order_id is None
+
+    try:
+        order_id = repo.add_order(
+            Order(
+                user_id=user_id,
+                symbol=symbol,
+                side="BUY",
+                price=result.price,
+                quantity=result.quantity,
+                filled_quantity=result.filled_quantity,
+                exchange_order_id=result.order_id,
+                multiplier=multiplier,
+                reprices=result.reprices,
+                status=result.status,
+                created_at=datetime.now(UTC),
+            )
+        )
+    except Exception:
+        logger.exception("Failed to save order to database")
+        return False
+
+    logger.info(f"Order saved to database: {order_id} (status: {result.status})")
+    return True
 
 
 def main() -> int:
@@ -142,7 +185,7 @@ def main() -> int:
                 return 0
 
             logger.debug("Weekly check passed - proceeding with order")
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.warning(f"Weekly check failed: {e}. Proceeding with order.")
 
         # Execute DCA order
@@ -164,31 +207,11 @@ def main() -> int:
         result = executor.execute(config, dry_run=args.dry_run)
 
         # Save order to database (all results except dry-run)
+        recorded = True
         if not args.dry_run:
-            try:
-                # Ensure price and quantity are not None
-                if result.price is None or result.quantity is None:
-                    logger.warning("Order result missing price or quantity, cannot save to database")
-                else:
-                    order_id = repo.add_order(
-                        Order(
-                            user_id=user_uuid,
-                            symbol=symbol,
-                            side="BUY",
-                            price=result.price,
-                            quantity=result.quantity,
-                            filled_quantity=result.filled_quantity,
-                            exchange_order_id=result.order_id,
-                            multiplier=args.price_multiplier,
-                            reprices=result.reprices,
-                            status=result.status,
-                            created_at=datetime.now(UTC),
-                        )
-                    )
-                    logger.info(f"Order saved to database: {order_id} (status: {result.status})")
-            except Exception as e:
-                logger.error(f"Failed to save order to database: {e}")
-                # Don't fail the main flow
+            recorded = persist_order(
+                repo, user_uuid, symbol, result, args.price_multiplier, logger
+            )
 
         # Log result
         if result.filled and result.partial:
@@ -203,6 +226,13 @@ def main() -> int:
         else:
             logger.error(f"FAILED: {result.message}")
 
+        if not recorded:
+            logger.error(
+                "Order reached the exchange but was not recorded. The weekly check "
+                "cannot see it, so another order might be placed on a later run."
+            )
+            return 1
+
         return 0 if result.success else 1
 
     except (BinanceAPIError, CoinbaseAPIError) as e:
@@ -211,8 +241,8 @@ def main() -> int:
     except ValueError as e:
         logger.error(f"Configuration error: {e}")
         return 1
-    except Exception as e:
-        logger.exception(f"Unexpected error: {e}")
+    except Exception:
+        logger.exception("Unexpected error")
         return 1
     finally:
         pool.close()

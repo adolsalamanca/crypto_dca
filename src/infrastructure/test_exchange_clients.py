@@ -93,8 +93,8 @@ def test_binance_rules_mapping(binance, monkeypatch):
     assert rules.tick_size == Decimal("0.01")
     assert rules.step_size == Decimal("0.00001")
     assert rules.min_qty == Decimal("0.00001")
-    assert rules.max_qty == Decimal("9000")
-    assert rules.min_notional == Decimal("5")
+    assert rules.max_qty == Decimal(9000)
+    assert rules.min_notional == Decimal(5)
 
 
 def test_coinbase_rules_mapping(coinbase, monkeypatch):
