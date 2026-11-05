@@ -4,7 +4,7 @@ on:
   schedule:
     # Run every day at 08:00 UTC
     # This corresponds to 09:00 Europe/Madrid in winter (CET = UTC+1)
-    # In summer (CEST = UTC+2), this will run at 10:05 Madrid time
+    # In summer (CEST = UTC+2), this runs at 10:00 Madrid time
     - cron: '0 8 * * *'
 
   # Allow manual trigger for testing

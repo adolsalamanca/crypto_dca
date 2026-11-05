@@ -29,7 +29,7 @@ def normalize_symbol(symbol: str) -> str:
 def parse_args() -> argparse.Namespace:
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(
-        description="Automated Binance Spot DCA bot for scheduled limit buy orders",
+        description="Automated Binance and Coinbase spot DCA bot for scheduled limit buy orders",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
 
@@ -44,9 +44,9 @@ def parse_args() -> argparse.Namespace:
         "--base-url",
         default=os.environ.get("BASE_URL") or os.environ.get("BINANCE_BASE_URL"),
         help=(
-            "Exchange API base URL. Defaults per exchange; use "
-            "https://testnet.binance.vision (Binance testnet) or "
-            "https://api-public.sandbox.exchange.coinbase.com (Coinbase sandbox)"
+            "Exchange API base URL. Defaults per exchange. Use "
+            "https://testnet.binance.vision for the Binance testnet. "
+            "Coinbase has no usable sandbox for this bot"
         ),
     )
 

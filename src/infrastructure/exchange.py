@@ -33,7 +33,7 @@ class ExchangeInterface(ABC):
     @abstractmethod
     def format_symbol(self, symbol: str) -> str:
         """
-        Render a canonical symbol (e.g. 'BTCEUR') in this venue's notation.
+        Render a canonical symbol (e.g. 'BTC-EUR') in this venue's notation.
 
         Canonical form is what the application stores and queries by; each venue formats
         it on the way out, so the persisted representation never depends on the broker.

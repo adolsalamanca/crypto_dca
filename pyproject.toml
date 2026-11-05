@@ -1,7 +1,7 @@
 [project]
 name = "crypto-dca"
 version = "0.1.0"
-description = "Automated Binance Spot DCA bot for scheduled limit buy orders"
+description = "Automated Binance and Coinbase spot DCA bot for scheduled limit buy orders"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
