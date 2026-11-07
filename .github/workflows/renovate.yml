@@ -5,6 +5,12 @@ on:
     # Every Monday at 05:17 UTC.
     - cron: '17 5 * * 1'
   workflow_dispatch:
+    inputs:
+      log_level:
+        description: Renovate log level
+        type: choice
+        default: info
+        options: [info, debug]
 
 # The built-in GITHUB_TOKEN gets no permissions. Renovate uses a GitHub App token instead.
 permissions: {}
@@ -42,4 +48,4 @@ jobs:
           RENOVATE_REPOSITORIES: ${{ github.repository }}
           RENOVATE_ONBOARDING: "false"
           RENOVATE_REQUIRE_CONFIG: required
-          LOG_LEVEL: info
+          LOG_LEVEL: ${{ inputs.log_level || 'info' }}
