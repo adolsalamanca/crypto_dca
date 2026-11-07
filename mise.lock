@@ -3,44 +3,51 @@
 lockfile_version = 3
 
 [[tools."aqua:golang-migrate/migrate"]]
-version = "4.18.1"
+version = "4.20.1"
 backend = "aqua:golang-migrate/migrate"
-specifiers = ["4.18.1"]
+specifiers = ["4.20.1"]
 
 [tools."aqua:golang-migrate/migrate"."platforms.linux-arm64"]
-checksum = "sha256:56110625dbd272965837e551bf7401b7ae64336d060f8bf13e65b1f8b13ac14e"
-url = "https://github.com/golang-migrate/migrate/releases/download/v4.18.1/migrate.linux-arm64.tar.gz"
-url_api = "https://api.github.com/repos/golang-migrate/migrate/releases/assets/191313384"
+checksum = "sha256:03ea70d9ba535b68fe03602120d1856a567cd0fa2fbca3748ba8070e9d4b8f60"
+checksum_source = "mise-versions"
+url = "https://github.com/golang-migrate/migrate/releases/download/v4.20.1/migrate.linux-arm64.tar.gz"
+url_api = "https://api.github.com/repos/golang-migrate/migrate/releases/assets/552121005"
 
 [tools."aqua:golang-migrate/migrate"."platforms.linux-arm64-musl"]
-checksum = "sha256:56110625dbd272965837e551bf7401b7ae64336d060f8bf13e65b1f8b13ac14e"
-url = "https://github.com/golang-migrate/migrate/releases/download/v4.18.1/migrate.linux-arm64.tar.gz"
-url_api = "https://api.github.com/repos/golang-migrate/migrate/releases/assets/191313384"
+checksum = "sha256:03ea70d9ba535b68fe03602120d1856a567cd0fa2fbca3748ba8070e9d4b8f60"
+checksum_source = "mise-versions"
+url = "https://github.com/golang-migrate/migrate/releases/download/v4.20.1/migrate.linux-arm64.tar.gz"
+url_api = "https://api.github.com/repos/golang-migrate/migrate/releases/assets/552121005"
 
 [tools."aqua:golang-migrate/migrate"."platforms.linux-x64"]
-checksum = "sha256:2a08137b4720aa457bc760540723e313783f1fab27473463bdcc5fc2e9252959"
-url = "https://github.com/golang-migrate/migrate/releases/download/v4.18.1/migrate.linux-amd64.tar.gz"
-url_api = "https://api.github.com/repos/golang-migrate/migrate/releases/assets/191313374"
+checksum = "sha256:b1e13121d4178b7804a9fb29dca62d57b732390f7e5ae33f2cd65e9b192e1bd4"
+checksum_source = "mise-versions"
+url = "https://github.com/golang-migrate/migrate/releases/download/v4.20.1/migrate.linux-amd64.tar.gz"
+url_api = "https://api.github.com/repos/golang-migrate/migrate/releases/assets/552121031"
 
 [tools."aqua:golang-migrate/migrate"."platforms.linux-x64-musl"]
-checksum = "sha256:2a08137b4720aa457bc760540723e313783f1fab27473463bdcc5fc2e9252959"
-url = "https://github.com/golang-migrate/migrate/releases/download/v4.18.1/migrate.linux-amd64.tar.gz"
-url_api = "https://api.github.com/repos/golang-migrate/migrate/releases/assets/191313374"
+checksum = "sha256:b1e13121d4178b7804a9fb29dca62d57b732390f7e5ae33f2cd65e9b192e1bd4"
+checksum_source = "mise-versions"
+url = "https://github.com/golang-migrate/migrate/releases/download/v4.20.1/migrate.linux-amd64.tar.gz"
+url_api = "https://api.github.com/repos/golang-migrate/migrate/releases/assets/552121031"
 
 [tools."aqua:golang-migrate/migrate"."platforms.macos-arm64"]
-checksum = "sha256:5858e7107c19639a982da05f96cad4cc6b008f63acb1a7ac7f9ddf77f98e6651"
-url = "https://github.com/golang-migrate/migrate/releases/download/v4.18.1/migrate.darwin-arm64.tar.gz"
-url_api = "https://api.github.com/repos/golang-migrate/migrate/releases/assets/191313380"
+checksum = "sha256:d66f87e41eb6beda9328f0ef99a34c1c51411a0663a782111fb519f3652506c2"
+checksum_source = "mise-versions"
+url = "https://github.com/golang-migrate/migrate/releases/download/v4.20.1/migrate.darwin-arm64.tar.gz"
+url_api = "https://api.github.com/repos/golang-migrate/migrate/releases/assets/552120950"
 
 [tools."aqua:golang-migrate/migrate"."platforms.macos-x64"]
-checksum = "sha256:17104632ce506de052d8db498197a659405157e2412d84fb32e3d6f88d56b7dd"
-url = "https://github.com/golang-migrate/migrate/releases/download/v4.18.1/migrate.darwin-amd64.tar.gz"
-url_api = "https://api.github.com/repos/golang-migrate/migrate/releases/assets/191313379"
+checksum = "sha256:acb7c3756fbfea5ae2985eaeb5aa7769ecfdd43bd179a7240f9bebf4b45fee89"
+checksum_source = "mise-versions"
+url = "https://github.com/golang-migrate/migrate/releases/download/v4.20.1/migrate.darwin-amd64.tar.gz"
+url_api = "https://api.github.com/repos/golang-migrate/migrate/releases/assets/552120951"
 
 [tools."aqua:golang-migrate/migrate"."platforms.windows-x64"]
-checksum = "sha256:bdfbbd61094d17cbc08167c0269cf863159f2f98fa389de40e04ceae99880361"
-url = "https://github.com/golang-migrate/migrate/releases/download/v4.18.1/migrate.windows-amd64.zip"
-url_api = "https://api.github.com/repos/golang-migrate/migrate/releases/assets/191313373"
+checksum = "sha256:bf68e2fdd1c8efd3cac59c6cb4cddca51546c402e3fc616172329d7686875ce8"
+checksum_source = "mise-versions"
+url = "https://github.com/golang-migrate/migrate/releases/download/v4.20.1/migrate.windows-amd64.zip"
+url_api = "https://api.github.com/repos/golang-migrate/migrate/releases/assets/552121030"
 
 [[tools.python]]
 version = "3.13.18"

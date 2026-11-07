@@ -3,7 +3,7 @@
 [tools]
 python = "3.13"
 uv = "0.13.6"
-"aqua:golang-migrate/migrate" = "4.18.1"
+"aqua:golang-migrate/migrate" = "4.20.1"
 
 [settings]
 lockfile = true
