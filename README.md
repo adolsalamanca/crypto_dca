@@ -1,242 +1,30 @@
 # Crypto DCA Bot
 
-Automated Dollar-Cost Averaging (DCA) bot for Binance and Coinbase spot trading. The bot places
-scheduled limit BUY orders at 99.9% of the current ask price. GitHub Actions runs it on a
-self-hosted runner.
+Simple tool that buys a fixed amount of BTC and ETH every week either in Coinbase or Binance, using a limit order just
+below the ask price. GitHub Actions runs it daily on a self-hosted runner. Postgres records every
+order, so the bot buys each coin at most once per week
 
-## Symbol format
-
-The canonical symbol form is `BASE-QUOTE` (`BTC-EUR`, `LINK-USDC`). The bot requires the separator.
-Without it, the bot cannot split a pair into base and quote without a table of quote assets.
-Such a table silently splits any asset that is not in it incorrectly. Each exchange client
-converts the canonical form to its own notation. The Binance client deletes the dash. The
-Coinbase client keeps it.
-
-## Test locally
-
-[mise](https://mise.jdx.dev) installs the tools: Python, uv and golang-migrate. `mise.toml` sets
-the versions. `mise.lock` records the exact versions and the checksum of each download. CI uses
-the same two files.
+## Quick start
 
 ```bash
-# Install mise (Arch Linux; see https://mise.jdx.dev for other systems)
-sudo pacman -S mise
-
-# Install the tools that mise.lock records, and verify each download
-mise trust
-mise install --locked
-
-# Install dependencies
+mise trust && mise install --locked     # Python, uv and golang-migrate, checksum-verified
 uv sync
-```
 
-`mise.toml` also sets `UV_PYTHON_DOWNLOADS=never` and `UV_PYTHON_PREFERENCE=only-system`. These
-settings make uv use the Python that mise installed. Without mise activated in your shell, run
-each command through `mise exec --`, for example `mise exec -- uv sync`.
-
-To change a tool version, edit `mise.toml`, then run `mise lock` and commit both files.
-
-Every run needs a Postgres database and a user row, including a dry run. Set these two values
-before you run the bot:
-
-```bash
 export DATABASE_URL="postgresql://user:password@localhost:5432/crypto_dca"
 export USER_ID="uuid-of-a-row-in-crypto_dca.users"
-```
-
-The bot reads `USER_ID` from the environment. You can also pass it as `--user-id`. Apply the
-migrations first (see [Migrations](#migrations)).
-
-### Binance
-
-```bash
-export BINANCE_API_KEY="your_api_key"
-export BINANCE_API_SECRET="your_api_secret"
-
-# Dry run (no actual order)
-uv run python -m src.main --exchange binance --spend-eur 50 --dry-run
-
-# Testnet (fake money)
-uv run python -m src.main \
-  --exchange binance \
-  --base-url https://testnet.binance.vision \
-  --symbol BTC-USDT \
-  --spend-eur 50
-```
-
-The default exchange is `coinbase`, so the Binance commands must pass `--exchange binance`.
-
-`--spend-eur` is an amount in the quote asset of the pair, not always in EUR. The testnet
-example above spends 50 USDT.
-
-### Coinbase
-
-The bot uses the Coinbase **Advanced Trade** API (`api.coinbase.com/api/v3/brokerage`) with CDP
-keys. This API is different from the Exchange API:
-
-- The Exchange API uses a key, a secret and a passphrase, signed with base64 HMAC.
-- CDP keys are a key ID plus an Ed25519 (or legacy ECDSA) private key. Each request carries a
-  JWT for its own method and path.
-
-Retail accounts can only issue CDP keys. There is no passphrase.
-
-Create a key at <https://portal.cdp.coinbase.com>. Ed25519 is the recommended algorithm. The
-bot accepts the secret as the base64 string that the portal shows, or as a PEM block.
-
-```bash
 export COINBASE_API_KEY="your_key_id"
-export COINBASE_API_SECRET="your_base64_ed25519_secret"   # or a PEM private key
+export COINBASE_API_SECRET="your_base64_ed25519_secret"
 
-uv run python -m src.main \
-  --exchange coinbase \
-  --symbol BTC-EUR \
-  --spend-eur 50
-```
-
-There is no usable sandbox. The Advanced Trade sandbox returns canned responses and serves no
-market data, so it cannot drive this bot. The only real verification is a small live order.
-
-### Dry run
-
-`--dry-run` calculates an order but does not place it. It does not record anything in the
-database. It still needs the database and the exchange keys. It also applies the weekly check.
-If an order already filled this week, the dry run exits with "Nothing to do this week"
-and checks nothing else.
-
-### IP allowlists
-
-If you add an IP allowlist to a Coinbase key, Coinbase compares it with the address family that
-your connection uses. With IPv6 connectivity, an IPv4 entry never matches.
-
-Run `uv run python -m src.main --help` for all options.
-
-## Scheduled runs
-
-`.github/workflows/daily.yml` runs every day at 08:00 UTC. All workflows in this repository use
-`runs-on: self-hosted`. Without a self-hosted runner, the jobs stay in the queue and never start.
-
-The weekly check looks for a purchase in the current ISO week (Monday to Sunday, UTC) for
-`(user_id, symbol, side)`. Each coin is independent. If the check finds a purchase, the run exits
-with no new order.
-
-The bot saves every order that it places. Only an order that bought coin closes the week:
-
-- A `FILLED` or `PARTIALLY_FILLED` order closes the week. A partial fill buys less than the
-  weekly spend, and the bot does not buy the remainder.
-- A `CANCELLED` order (for example, after the maximum number of reprices) does not close the
-  week. The next daily run tries again.
-
-If the weekly check cannot read the database, the bot places no order and exits with a non-zero
-code. The next daily run tries again.
-
-Each coin is one entry in a build matrix, and each entry is a separate job. The workflow sets
-`fail-fast: false`, so a failure for one coin does not cancel the job for the other coin.
-
-To add a coin, add a matrix entry and create its spend secret:
-
-```yaml
-matrix:
-  include:
-    - symbol: BTC-EUR
-      spend_secret: SPEND_EUR_BTC
-    - symbol: ETH-EUR
-      spend_secret: SPEND_EUR_ETH
-```
-
-### Secrets
-
-| Name | Purpose |
-| --- | --- |
-| `COINBASE_API_KEY` | CDP key ID |
-| `COINBASE_API_SECRET` | base64 Ed25519 secret, or a PEM private key |
-| `DATABASE_URL` | Postgres connection string |
-| `USER_ID` | UUID of the row in `crypto_dca.users` that the bot books orders against |
-| `SPEND_EUR_BTC` | EUR to spend each week on BTC-EUR |
-| `SPEND_EUR_ETH` | EUR to spend each week on ETH-EUR |
-
-The spend amounts are secrets, not workflow values, because this repository is public. If a
-spend secret is missing, the workflow spends 50 EUR. Set each spend secret explicitly.
-
-### Variables
-
-All variables are optional. Each one uses the default shown if you do not set it.
-
-| Name | Default |
-| --- | --- |
-| `EXCHANGE` | `coinbase` |
-| `PRICE_MULTIPLIER` | `0.999` |
-| `TIME_IN_FORCE` | `GTC` |
-| `LOG_LEVEL` | `INFO` |
-| `BASE_URL` | the endpoint of the selected exchange |
-
-`USER_ID` must match an existing user row. A stale value makes the run fail, so the bot does not
-lose orders silently. If an order reaches the exchange but the bot cannot save it, the run exits
-with a non-zero code. This matters because the weekly check reads the saved row. Without it, the
-bot could buy again on a later run.
-
-## Dependency updates
-
-Renovate opens pull requests for the GitHub Actions in `.github/workflows`, the tools in
-`mise.toml` and `mise.lock`, and the Python packages in `pyproject.toml` and `uv.lock`.
-`renovate.json` holds the configuration:
-
-- Renovate waits 7 days after a release before it proposes the update.
-- Actions stay pinned to commit SHAs.
-- GitHub merges minor and patch updates automatically after CI passes. You review and merge
-  each major update.
-- A ruleset on `main` requires the CI `test` check before any merge. Repository admins can
-  bypass the ruleset. The Renovate App cannot.
-
-`.github/workflows/renovate.yml` runs Renovate every Monday at 05:17 UTC on a GitHub-hosted
-runner. The workflow gives the built-in `GITHUB_TOKEN` no permissions. It uses a GitHub App
-token instead. This token is valid for 1 hour and only for this repository.
-
-CI also runs on a GitHub-hosted runner, because Renovate branches contain code that you did not
-review yet. Only `daily.yml` and `migrate.yml` use the self-hosted runner.
-
-### Set up the GitHub App
-
-Do these steps once:
-
-1. Create a GitHub App at <https://github.com/settings/apps/new>:
-   - Clear **Webhook > Active**.
-   - Set **Repository permissions**:
-     - **Read and write**: Contents, Pull requests, Workflows, Commit statuses.
-     - **Read-only**: Checks, Dependabot alerts, Metadata.
-     - **No access**: all other permissions.
-   - Set **Where can this GitHub App be installed?** to **Only on this account**.
-2. On the App page, copy the **Client ID** and generate a private key.
-3. Install the App on this repository only (**Only select repositories**).
-4. In the repository settings, create an environment named `renovate`. Under
-   **Deployment branches and tags**, allow only `main`.
-5. In the `renovate` environment, add:
-   - Variable `RENOVATE_APP_CLIENT_ID`: the Client ID.
-   - Secret `RENOVATE_APP_PRIVATE_KEY`: the contents of the private key file.
-6. Delete the local copy of the private key file.
-7. Run the `Renovate` workflow manually once and examine the log.
-
-GitHub Dependabot alerts are separate from Renovate. Keep them on.
-
-## Tests
-
-```bash
-uv sync --group test
-uv run pytest
-```
-
-The test dependencies are in the `test` dependency group, and `uv sync` alone does not install
-them.
-
-The repository tests use [testcontainers](https://testcontainers.com/) and need a running Docker
-daemon (`colima start` if you use colima). The exchange contract tests need neither Docker nor
-credentials.
-
-## Migrations
-
-The `migrate.yml` workflow applies the migrations with
-[golang-migrate](https://github.com/golang-migrate/migrate). You start it manually. To apply them
-locally:
-
-```bash
 migrate -path migrations -database "$DATABASE_URL" up
+uv run python -m src.main --symbol BTC-EUR --spend-eur 50 --dry-run
 ```
+
+`--dry-run` places no order. Drop it to buy for real: Coinbase has no usable sandbox.
+
+## Docs
+
+- [How the bot works](docs/bot.md): order placement, repricing and the weekly check.
+- [Development](docs/development.md): tools, credentials for each exchange, tests and migrations.
+- [CI and scheduled runs](docs/ci.md): workflows, secrets, adding a coin, and how tools and
+  actions are pinned.
+- [Dependency updates](docs/dependency-updates.md): Renovate, automerge and the GitHub App.
