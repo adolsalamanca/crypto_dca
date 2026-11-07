@@ -182,7 +182,10 @@ Renovate opens pull requests for the GitHub Actions in `.github/workflows`, the 
 
 - Renovate waits 7 days after a release before it proposes the update.
 - Actions stay pinned to commit SHAs.
-- Renovate does not merge anything. You review and merge each pull request.
+- GitHub merges minor and patch updates automatically after CI passes. You review and merge
+  each major update.
+- A ruleset on `main` requires the CI `test` check before any merge. Repository admins can
+  bypass the ruleset. The Renovate App cannot.
 
 `.github/workflows/renovate.yml` runs Renovate every Monday at 05:17 UTC on a GitHub-hosted
 runner. The workflow gives the built-in `GITHUB_TOKEN` no permissions. It uses a GitHub App
@@ -197,9 +200,10 @@ Do these steps once:
 
 1. Create a GitHub App at <https://github.com/settings/apps/new>:
    - Clear **Webhook > Active**.
-   - Set **Repository permissions**: Contents, Pull requests and Workflows to
-     **Read and write**. Keep Metadata at **Read-only**. Leave all other permissions at
-     **No access**.
+   - Set **Repository permissions**:
+     - **Read and write**: Contents, Pull requests, Workflows, Commit statuses.
+     - **Read-only**: Checks, Dependabot alerts, Metadata.
+     - **No access**: all other permissions.
    - Set **Where can this GitHub App be installed?** to **Only on this account**.
 2. On the App page, copy the **Client ID** and generate a private key.
 3. Install the App on this repository only (**Only select repositories**).

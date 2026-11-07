@@ -1,7 +1,14 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["config:recommended", "helpers:pinGitHubActionDigests"],
-  "enabledManagers": ["github-actions", "mise", "pep621"],
+  "extends": [
+    "config:recommended",
+    "helpers:pinGitHubActionDigests"
+  ],
+  "enabledManagers": [
+    "github-actions",
+    "mise",
+    "pep621"
+  ],
   "dependencyDashboard": false,
   "automerge": false,
   "minimumReleaseAge": "7 days",
@@ -9,13 +16,27 @@
   "packageRules": [
     {
       "description": "Keep the version ranges in pyproject.toml. Update only uv.lock inside them.",
-      "matchManagers": ["pep621"],
+      "matchManagers": [
+        "pep621"
+      ],
       "rangeStrategy": "update-lockfile"
     },
     {
       "description": "cryptography 49+ has no x86_64 macOS wheel. See pyproject.toml.",
-      "matchPackageNames": ["cryptography"],
+      "matchPackageNames": [
+        "cryptography"
+      ],
       "allowedVersions": "<49"
+    },
+    {
+      "description": "Merge minor and patch updates without review once CI passes. GitHub enforces the CI check through the main ruleset.",
+      "matchUpdateTypes": [
+        "minor",
+        "patch"
+      ],
+      "automerge": true,
+      "automergeType": "pr",
+      "platformAutomerge": true
     }
   ]
 }
