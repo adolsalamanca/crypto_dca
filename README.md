@@ -14,13 +14,27 @@ Coinbase client keeps it.
 
 ## Test locally
 
+[mise](https://mise.jdx.dev) installs the tools: Python, uv and golang-migrate. `mise.toml` sets
+the versions. `mise.lock` records the exact versions and the checksum of each download. CI uses
+the same two files.
+
 ```bash
-# Install uv (if not already installed)
-curl -LsSf https://astral.sh/uv/install.sh | sh
+# Install mise (Arch Linux; see https://mise.jdx.dev for other systems)
+sudo pacman -S mise
+
+# Install the tools that mise.lock records, and verify each download
+mise trust
+mise install --locked
 
 # Install dependencies
 uv sync
 ```
+
+`mise.toml` also sets `UV_PYTHON_DOWNLOADS=never` and `UV_PYTHON_PREFERENCE=only-system`. These
+settings make uv use the Python that mise installed. Without mise activated in your shell, run
+each command through `mise exec --`, for example `mise exec -- uv sync`.
+
+To change a tool version, edit `mise.toml`, then run `mise lock` and commit both files.
 
 Every run needs a Postgres database and a user row, including a dry run. Set these two values
 before you run the bot:

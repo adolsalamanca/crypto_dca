@@ -42,13 +42,17 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - name: Install tools (mise)
+        uses: jdx/mise-action@6612f0ef07ed2a736cd1e00a94a065522dd41195 # v5.2.5
         with:
-          version: "0.13.7"
-
-      - name: Set up Python
-        run: uv python install 3.13
+          version: 2026.10.25
+          # sha256 of the linux-x64 mise binary for this version. Update both together.
+          sha256: 5d362ecc578dc7c146679b841dda949d6472cbf86ff5635db7afdca1b6b3fd87
+          # No shared cache: every run installs from mise.lock and verifies checksums.
+          cache: false
+        env:
+          # Install exactly what mise.lock records, or fail.
+          MISE_LOCKED: "1"
 
       - name: Install dependencies
         run: uv sync

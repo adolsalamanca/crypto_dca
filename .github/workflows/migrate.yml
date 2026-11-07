@@ -13,23 +13,20 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Install migrate tool
+      - name: Install tools (mise)
+        uses: jdx/mise-action@6612f0ef07ed2a736cd1e00a94a065522dd41195 # v5.2.5
+        with:
+          version: 2026.10.25
+          # sha256 of the linux-x64 mise binary for this version. Update both together.
+          sha256: 5d362ecc578dc7c146679b841dda949d6472cbf86ff5635db7afdca1b6b3fd87
+          # No shared cache: every run installs from mise.lock and verifies checksums.
+          cache: false
         env:
-          MIGRATE_VERSION: v4.18.1
-          # sha256 of migrate.linux-amd64.tar.gz for MIGRATE_VERSION. Update both together.
-          MIGRATE_SHA256: 2a08137b4720aa457bc760540723e313783f1fab27473463bdcc5fc2e9252959
-        run: |
-          if ! command -v migrate &> /dev/null; then
-            echo "Installing golang-migrate..."
-            curl -fsSL -o migrate.tar.gz \
-              "https://github.com/golang-migrate/migrate/releases/download/${MIGRATE_VERSION}/migrate.linux-amd64.tar.gz"
-            echo "${MIGRATE_SHA256}  migrate.tar.gz" | sha256sum --check --strict
-            tar xzf migrate.tar.gz migrate
-            rm migrate.tar.gz
-            sudo mv migrate /usr/local/bin/migrate
-            sudo chmod +x /usr/local/bin/migrate
-          fi
-          migrate -version
+          # Install exactly what mise.lock records, or fail.
+          MISE_LOCKED: "1"
+
+      - name: Show migrate version
+        run: migrate -version
 
       - name: Run migrations
         env:

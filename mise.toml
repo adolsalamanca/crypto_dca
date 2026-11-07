@@ -1,0 +1,14 @@
+# Tool versions for local development and CI. mise.lock records the exact
+# versions and checksums; install with `mise install --locked`.
+[tools]
+python = "3.13"
+uv = "0.13.6"
+"aqua:golang-migrate/migrate" = "4.18.1"
+
+[settings]
+lockfile = true
+
+[env]
+# uv must use the Python that mise installed from mise.lock, never its own download.
+UV_PYTHON_DOWNLOADS = "never"
+UV_PYTHON_PREFERENCE = "only-system"
