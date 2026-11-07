@@ -108,6 +108,22 @@ def persist_order(
     return True
 
 
+def bought_this_week(
+    repo: Repository, user_id: UUID, symbol: str, logger: logging.Logger
+) -> bool | None:
+    """Whether a purchase for this symbol already closed the current week.
+
+    Returns None when the check cannot be made. The caller must not place an order then:
+    proceeding blind could buy twice in one week, while skipping only delays the buy to
+    the next daily run.
+    """
+    try:
+        return is_same_week(repo.get_last_order(user_id, symbol, "BUY"))
+    except Exception:
+        logger.exception("Weekly check failed")
+        return None
+
+
 def main() -> int:
     args = parse_args()
 
@@ -173,17 +189,18 @@ def main() -> int:
     user_uuid = UUID(args.user_id)
 
     try:
-        # Weekly check - early exit if order already placed this week
-        try:
-            last_order = repo.get_last_order(user_uuid, symbol, "BUY")
+        bought = bought_this_week(repo, user_uuid, symbol, logger)
+        if bought is None:
+            logger.error(
+                "Not placing an order: cannot tell whether this week already bought. "
+                "The next run retries."
+            )
+            return 1
+        if bought:
+            logger.info("Nothing to do this week - order already placed")
+            return 0
 
-            if is_same_week(last_order):
-                logger.info("Nothing to do this week - order already placed")
-                return 0
-
-            logger.debug("Weekly check passed - proceeding with order")
-        except Exception as e:  # noqa: BLE001
-            logger.warning(f"Weekly check failed: {e}. Proceeding with order.")
+        logger.debug("Weekly check passed - proceeding with order")
 
         # Execute DCA order
         client = build_client(

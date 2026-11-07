@@ -101,20 +101,19 @@ Run `uv run python -m src.main --help` for all options.
 `.github/workflows/daily.yml` runs every day at 08:00 UTC. All workflows in this repository use
 `runs-on: self-hosted`. Without a self-hosted runner, the jobs stay in the queue and never start.
 
-The weekly check looks for a `FILLED` order in the current ISO week (Monday to Sunday, UTC) for
-`(user_id, symbol, side)`. Each coin is independent. If the check finds such an order, the run
-exits with no new order.
+The weekly check looks for a purchase in the current ISO week (Monday to Sunday, UTC) for
+`(user_id, symbol, side)`. Each coin is independent. If the check finds a purchase, the run exits
+with no new order.
 
-The bot saves every order that it places, but only a `FILLED` order closes the week:
+The bot saves every order that it places. Only an order that bought coin closes the week:
 
+- A `FILLED` or `PARTIALLY_FILLED` order closes the week. A partial fill buys less than the
+  weekly spend, and the bot does not buy the remainder.
 - A `CANCELLED` order (for example, after the maximum number of reprices) does not close the
   week. The next daily run tries again.
-- A `PARTIALLY_FILLED` order does not close the week. The next daily run places a new order for
-  the full spend amount. A week can therefore buy more than the weekly spend.
 
-If the weekly check cannot read the database, the bot logs
-`Weekly check failed ... Proceeding with order` and places the order. A database read error can
-therefore cause a second order in the same week.
+If the weekly check cannot read the database, the bot places no order and exits with a non-zero
+code. The next daily run tries again.
 
 Each coin is one entry in a build matrix, and each entry is a separate job. The workflow sets
 `fail-fast: false`, so a failure for one coin does not cancel the job for the other coin.

@@ -364,8 +364,7 @@ class DCAExecutor:
         Record a partial fill as the purchase it is.
 
         A fill that completed the order is reported as FILLED; anything short of that as
-        PARTIALLY_FILLED. Only FILLED closes the weekly gate: the last_orders trigger fires
-        on FILLED alone, so a PARTIALLY_FILLED week is retried on the next run.
+        PARTIALLY_FILLED. Both close the weekly gate, because both mean coin was acquired.
         """
         complete = filled_qty >= requested_qty
         self._logger.info(f"Acquired {filled_qty}/{requested_qty} @ {price}")

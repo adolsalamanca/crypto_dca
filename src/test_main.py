@@ -1,13 +1,14 @@
 """Tests for order persistence in the entry point."""
 
 import logging
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from uuid import UUID, uuid4
 
 from src.dca_executor import OrderResult
 from src.domain.models import Order, User
 from src.infrastructure.repositories import Repository
-from src.main import persist_order
+from src.main import bought_this_week, persist_order
 
 USER_ID = UUID("0199a1f0-0000-7000-8000-000000000001")
 MULTIPLIER = Decimal("0.999")
@@ -78,3 +79,43 @@ def test_tolerates_an_order_that_never_reached_the_venue():
     result = OrderResult(success=False, filled=False, order_id=None, status="FAILED")
 
     assert persist_order(FakeRepository(), USER_ID, "BTC-EUR", result, MULTIPLIER, logging.getLogger())
+
+
+class BrokenRepository(FakeRepository):
+    """Repository whose weekly lookup fails, as during a database outage."""
+
+    def get_last_order(self, user_id: UUID, symbol: str, side: str) -> Order | None:
+        raise RuntimeError("connection reset")
+
+
+def order_at(created_at: datetime) -> Order:
+    return Order(
+        user_id=USER_ID,
+        symbol="BTC-EUR",
+        side="BUY",
+        price=Decimal("68000.00"),
+        quantity=Decimal("0.001"),
+        multiplier=MULTIPLIER,
+        reprices=0,
+        status="FILLED",
+        created_at=created_at,
+    )
+
+
+def test_weekly_check_is_unknown_when_the_lookup_fails():
+    """A failed lookup must not read as 'not bought': that would place a second order."""
+    assert bought_this_week(BrokenRepository(), USER_ID, "BTC-EUR", logging.getLogger()) is None
+
+
+def test_weekly_check_sees_a_purchase_from_this_week():
+    repo = FakeRepository()
+    repo.orders.append(order_at(datetime.now(UTC)))
+
+    assert bought_this_week(repo, USER_ID, "BTC-EUR", logging.getLogger()) is True
+
+
+def test_weekly_check_ignores_a_purchase_from_an_earlier_week():
+    repo = FakeRepository()
+    repo.orders.append(order_at(datetime.now(UTC) - timedelta(days=8)))
+
+    assert bought_this_week(repo, USER_ID, "BTC-EUR", logging.getLogger()) is False

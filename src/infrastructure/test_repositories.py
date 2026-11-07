@@ -340,3 +340,31 @@ def test_last_filled_order_updated(repo):
     assert last_order.price == Decimal("3100.00")
     assert last_order.quantity == Decimal("0.2")
     assert last_order.reprices == 2
+
+
+def test_partial_fill_closes_the_weekly_gate(repo):
+    """A partial fill bought coin, so it must reach last_orders. A cancel must not."""
+    user_id = repo.add_user(User(name="Grace"))
+
+    def order(status: str, filled: str) -> Order:
+        return Order(
+            user_id=user_id,
+            symbol="BTC-EUR",
+            side="BUY",
+            price=Decimal("60000.00"),
+            quantity=Decimal("0.002"),
+            filled_quantity=Decimal(filled),
+            multiplier=Decimal("0.999"),
+            reprices=3,
+            status=status,
+            created_at=datetime.now(UTC),
+        )
+
+    repo.add_order(order("CANCELLED", "0"))
+    assert repo.get_last_order(user_id, "BTC-EUR", "BUY") is None
+
+    partial_id = repo.add_order(order("PARTIALLY_FILLED", "0.0005"))
+    last = repo.get_last_order(user_id, "BTC-EUR", "BUY")
+    assert last is not None
+    assert last.id == partial_id
+    assert last.filled_quantity == Decimal("0.0005")
