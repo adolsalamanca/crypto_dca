@@ -1,0 +1,21 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended", "helpers:pinGitHubActionDigests"],
+  "enabledManagers": ["github-actions", "mise", "pep621"],
+  "dependencyDashboard": false,
+  "automerge": false,
+  "minimumReleaseAge": "7 days",
+  "internalChecksFilter": "strict",
+  "packageRules": [
+    {
+      "description": "Keep the version ranges in pyproject.toml. Update only uv.lock inside them.",
+      "matchManagers": ["pep621"],
+      "rangeStrategy": "update-lockfile"
+    },
+    {
+      "description": "cryptography 49+ has no x86_64 macOS wheel. See pyproject.toml.",
+      "matchPackageNames": ["cryptography"],
+      "allowedVersions": "<49"
+    }
+  ]
+}

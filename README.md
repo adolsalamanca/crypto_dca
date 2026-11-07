@@ -9,7 +9,7 @@ self-hosted runner.
 The canonical symbol form is `BASE-QUOTE` (`BTC-EUR`, `LINK-USDC`). The bot requires the separator.
 Without it, the bot cannot split a pair into base and quote without a table of quote assets.
 Such a table silently splits any asset that is not in it incorrectly. Each exchange client
-converts the canonical form to its own notation. The Binance client removes the dash. The
+converts the canonical form to its own notation. The Binance client deletes the dash. The
 Coinbase client keeps it.
 
 ## Test locally
@@ -173,6 +173,45 @@ All variables are optional. Each one uses the default shown if you do not set it
 lose orders silently. If an order reaches the exchange but the bot cannot save it, the run exits
 with a non-zero code. This matters because the weekly check reads the saved row. Without it, the
 bot could buy again on a later run.
+
+## Dependency updates
+
+Renovate opens pull requests for the GitHub Actions in `.github/workflows`, the tools in
+`mise.toml` and `mise.lock`, and the Python packages in `pyproject.toml` and `uv.lock`.
+`renovate.json` holds the configuration:
+
+- Renovate waits 7 days after a release before it proposes the update.
+- Actions stay pinned to commit SHAs.
+- Renovate does not merge anything. You review and merge each pull request.
+
+`.github/workflows/renovate.yml` runs Renovate every Monday at 05:17 UTC on a GitHub-hosted
+runner. The workflow gives the built-in `GITHUB_TOKEN` no permissions. It uses a GitHub App
+token instead. This token is valid for 1 hour and only for this repository.
+
+CI also runs on a GitHub-hosted runner, because Renovate branches contain code that you did not
+review yet. Only `daily.yml` and `migrate.yml` use the self-hosted runner.
+
+### Set up the GitHub App
+
+Do these steps once:
+
+1. Create a GitHub App at <https://github.com/settings/apps/new>:
+   - Clear **Webhook > Active**.
+   - Set **Repository permissions**: Contents, Pull requests and Workflows to
+     **Read and write**. Keep Metadata at **Read-only**. Leave all other permissions at
+     **No access**.
+   - Set **Where can this GitHub App be installed?** to **Only on this account**.
+2. On the App page, copy the **Client ID** and generate a private key.
+3. Install the App on this repository only (**Only select repositories**).
+4. In the repository settings, create an environment named `renovate`. Under
+   **Deployment branches and tags**, allow only `main`.
+5. In the `renovate` environment, add:
+   - Variable `RENOVATE_APP_CLIENT_ID`: the Client ID.
+   - Secret `RENOVATE_APP_PRIVATE_KEY`: the contents of the private key file.
+6. Delete the local copy of the private key file.
+7. Run the `Renovate` workflow manually once and examine the log.
+
+GitHub Dependabot alerts are separate from Renovate. Keep them on.
 
 ## Tests
 
