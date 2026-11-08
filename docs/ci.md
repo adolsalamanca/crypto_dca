@@ -4,14 +4,14 @@
 
 | Workflow | Trigger | Runner | Purpose |
 | --- | --- | --- | --- |
-| `ci.yml` | every push | GitHub-hosted | Tests, ruff and pyright |
-| `daily.yml` | daily at 08:00 UTC, or manual | self-hosted | Places the weekly buys |
-| `migrate.yml` | manual | self-hosted | Applies database migrations |
-| `renovate.yml` | Mondays at 05:17 UTC, or manual | GitHub-hosted | Opens dependency update PRs |
+| `ci.yaml` | every push | GitHub-hosted | Tests, ruff and pyright |
+| `daily.yaml` | daily at 08:00 UTC, or manual | self-hosted | Places the weekly buys |
+| `migrate.yaml` | manual | self-hosted | Applies database migrations |
+| `renovate.yaml` | Mondays at 05:17 UTC, or manual | GitHub-hosted | Opens dependency update PRs |
 
 Only the two workflows that need your secrets and database use the self-hosted runner. CI runs
 on GitHub's machines because it also tests Renovate branches, whose code nobody has reviewed yet.
-Without a self-hosted runner, `daily.yml` and `migrate.yml` stay queued and never start. The
+Without a self-hosted runner, `daily.yaml` and `migrate.yaml` stay queued and never start. The
 runner must be version 2.327.1 or newer to run the Node 24 actions.
 
 Every workflow limits the built-in `GITHUB_TOKEN` to `contents: read`. The Renovate workflow
@@ -40,7 +40,7 @@ matrix:
 To test without buying, start the workflow manually. Its `dry_run` input defaults to `true`:
 
 ```bash
-gh workflow run daily.yml -f dry_run=true
+gh workflow run daily.yaml -f dry_run=true
 ```
 
 ### Secrets
@@ -71,7 +71,7 @@ All optional.
 
 ## Migrations
 
-`migrate.yml` runs only when started manually. It applies every pending migration in
+`migrate.yaml` runs only when started manually. It applies every pending migration in
 `migrations/` to `DATABASE_URL` and prints the resulting version. Run it before the next daily
 run whenever a change adds a migration.
 
@@ -90,6 +90,6 @@ Renovate keeps these pins current; see [dependency updates](dependency-updates.m
 
 ## Branch rules
 
-The ruleset "main: CI must pass" requires the `test` check from `ci.yml` before anything merges
+The ruleset "main: CI must pass" requires the `test` check from `ci.yaml` before anything merges
 into `main`. Repository admins can bypass it, which keeps direct pushes to `main` working. The
 Renovate App cannot bypass it.

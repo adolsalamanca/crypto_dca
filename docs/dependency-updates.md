@@ -19,12 +19,12 @@ Minor and patch updates merge automatically through GitHub auto-merge once CI pa
 updates wait for you to review and merge them.
 
 Automerged updates include runtime packages, mise tools and workflow changes. They reach
-`daily.yml`, which runs with your Coinbase keys on the self-hosted runner, without anyone
+`daily.yaml`, which runs with your Coinbase keys on the self-hosted runner, without anyone
 reading them first. The 7-day wait and the CI check are the only gates.
 
 ## How Renovate runs
 
-`renovate.yml` runs Renovate every Monday at 05:17 UTC on a GitHub-hosted runner, never on the
+`renovate.yaml` runs Renovate every Monday at 05:17 UTC on a GitHub-hosted runner, never on the
 self-hosted one, because Renovate runs lock commands such as `mise lock` and `uv lock`.
 
 It does not use a stored token. Each run uses the GitHub App's private key to create a token that
@@ -34,7 +34,7 @@ secret in the `renovate` environment, which only `main` can use.
 To debug a run, start it manually with debug logging:
 
 ```bash
-gh workflow run renovate.yml -f log_level=debug
+gh workflow run renovate.yaml -f log_level=debug
 ```
 
 ## Setting up the GitHub App

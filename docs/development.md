@@ -97,4 +97,4 @@ Docker nor credentials.
 
 Migrations live in `migrations/` and are applied with
 [golang-migrate](https://github.com/golang-migrate/migrate), locally with the command above or
-in production with the manual `migrate.yml` workflow (see [CI](ci.md)).
+in production with the manual `migrate.yaml` workflow (see [CI](ci.md)).
