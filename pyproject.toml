@@ -20,7 +20,7 @@ crypto-dca = "src.main:main"
 [dependency-groups]
 dev = [
     "pyright==1.1.414",
-    "ruff==0.16.8",
+    "ruff==0.17.3",
 ]
 test = [
     "pytest>=8.0.0",
