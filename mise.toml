@@ -2,7 +2,7 @@
 # versions and checksums; install with `mise install --locked`.
 [tools]
 python = "3.13"
-uv = "0.13.7"
+uv = "0.13.8"
 "aqua:golang-migrate/migrate" = "4.20.1"
 
 [settings]
